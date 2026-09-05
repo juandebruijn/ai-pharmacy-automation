@@ -81,9 +81,47 @@ Las frases a procesar son principalmente en español, lo cual en modelos anterio
 
 ## Parte B — Brief de Solución Técnica
 
-<!-- B.1 Señal de dolor, B.2 Usuario objetivo, B.3 Matriz de Mapeo de Intenciones y B.4 Decisión técnica: pendientes.
-     IMPORTANTE: la Matriz de B.3 debe usar EXACTAMENTE las 6 intenciones definidas en B.5.c,
-     porque son las mismas que se codifican como Literal en schemas.py (C.1) y se reportan en C.3. -->
+---
+
+### B.1 — Señal de dolor
+
+La principal señal de dolor es la latencia humana, acompañada por un alto volumen de consultas repetitivas. Los empleados de la farmacia deben interrumpir frecuentemente la atención presencial para consultar manualmente el stock y los precios de los productos solicitados. Esto genera demoras en la atención, cuellos de botella y riesgo de pérdida de clientes.
+
+---
+
+### B.2 — Usuario objetivo
+
+El usuario objetivo principal es el empleado de la farmacia encargado de gestionar las consultas y pedidos recibidos por WhatsApp. Actualmente, debe interpretar manualmente cada consulta, ingresar al sistema de gestión o consultar el depósito para verificar stock y precios, responder al cliente y posteriormente cargar el pedido para despacho. El sistema propuesto busca automatizar estas tareas y dejar al empleado únicamente las situaciones que requieran intervención humana.
+
+---
+
+### B.3 — Matriz de Mapeo de Intenciones
+
+| Entrada del usuario (caos) | Intención (LLM) | Parámetros (LLM) | Acción de backend (determinista) | Riesgo |
+| :--- | :--- | :--- | :--- | :--- |
+| "¿Tienen Ibupirac 600 x20?" | `consulta_stock` | producto, presentacion, cantidad | Consultar disponibilidad en la tabla `productos`, filtrando por `sucursal_id`. | BAJO |
+| "¿Cuánto sale con OSDE?" | `consulta_precio_cobertura` | producto, presentacion, obra_social | Calcular `precio_lista` y aplicar el porcentaje de cobertura vigente contra la tabla de convenios. | MEDIO |
+| "¿Me lo mandan hoy?" | `consulta_envio` | requiere_envio, urgencia | Verificar zona de cobertura de envío y ventana horaria de corte del delivery. | BAJO |
+| (Envía foto de la receta) | `validar_receta` | adjuntos (imagen), producto | Registrar la imagen adjunta y marcar el pedido como pendiente de validación por un farmacéutico; bloquear el despacho hasta su aprobación. | ALTO |
+| "Quiero 2 cajas de Ibupirac 600 x20 y que me las manden." | `crear_pedido` | producto, presentacion, cantidad, requiere_envio | Verificar stock, cobertura y receta (si aplica) y generar el borrador de despacho en `pedidos`. | ALTO |
+| "Hola, ¿cómo andan?" | `fuera_de_alcance` | (todos los campos en null) | No se ejecuta ninguna acción de backend; se responde con un mensaje genérico o se deriva a un empleado humano. | BAJO |
+
+---
+
+### B.4 — Decisión técnica: ¿Reglas o LLM?
+
+| Componente | Clasificación | Justificación |
+| :--- | :--- | :--- |
+| Interpretación del mensaje de WhatsApp (texto libre → intención + parámetros) | LLM (probabilístico) | Requiere comprender lenguaje natural no estructurado, con variaciones de redacción, errores de tipeo y ambigüedad ("¿tienen...", "cuánto sale...", "quiero que me manden..."). No existe un conjunto finito de reglas/regex que cubra la variabilidad de cómo un cliente real escribe. Es la tarea central para la que un LLM está diseñado: mapear texto libre a una estructura. |
+| Consulta de stock en el ERP | Determinista (SQL) | Es una lectura exacta sobre una tabla de inventario. La respuesta es binaria/numérica (hay o no hay, y cuánto), no admite interpretación. Dejar que el LLM "estime" el stock es exactamente el error documentado en A.2 (alucinación). |
+| Cálculo de precio con descuento de obra social | Determinista (código/SQL) | Es una operación matemática (precio de lista × % cobertura). Tiene consecuencia financiera directa, por lo que un error de cálculo del LLM es inaceptable. El LLM no debe calcular montos, solo comunicarlos. |
+| Validación de cobertura/credencial OSDE | Determinista (SQL interno) | Consulta contra una tabla propia de convenios con obras sociales. Se resuelve por lectura de datos, no por interpretación de lenguaje. Decisión de alcance: se implementa como tabla interna con % fijo en esta entrega; la integración con APIs externas de las obras sociales queda para una iteración posterior, dado el costo de complejidad adicional que no aporta al objetivo de esta entrega. |
+| Verificación de Venta Libre vs. Venta Bajo Receta | Determinista (SQL, flag en catálogo) | Es una regla de negocio binaria (el medicamento tiene o no un atributo "requiere receta" en el catálogo). No requiere criterio ni interpretación: es una condición fija que no puede quedar sujeta a la probabilidad de un LLM, por el riesgo sanitario/legal que implica errar. |
+| Generación del borrador de pedido/despacho en el ERP | Determinista (código) | Es una escritura en el sistema (ALTO riesgo, según B.3). Debe ejecutarse solo si todas las validaciones anteriores (stock, cobertura, receta) fueron confirmadas por el backend. El LLM nunca debe tener permiso de escritura directa. |
+| Redacción de la respuesta final al cliente (humanización) | LLM (probabilístico) | Una vez que el backend determinista resolvió los datos reales (stock, precio, cobertura), el LLM solo redacta la respuesta en lenguaje natural y tono conversacional. Acá el LLM no decide ningún dato, solo lo comunica: es generación de texto, no una decisión de negocio. |
+
+
+> **Nota de coherencia:** el LLM aparece únicamente en los dos extremos del flujo (interpretar la entrada y redactar la salida), nunca en el medio, donde viven los datos y las reglas de negocio. Este es el "patrón híbrido": la IA es el intérprete, la base de datos es la autoridad.
 
 ---
 
@@ -296,3 +334,47 @@ FORMATO DE SALIDA (estructura exacta, todas las claves siempre presentes)
 | Prohíbe inventar datos | Prohibiciones 1 y 2: se le declara al modelo que no tiene acceso a stock, precios ni cobertura, y se le prohíbe afirmar cualquiera de esos valores. La prohibición 3 cubre además el intento de prompt injection del lote de C.3. |
 | Define el null | Bloque "MANEJO DE FALTANTES": `null` es el valor obligatorio ante ausencia, y se explicita que es una respuesta **correcta** y no una falla — sin eso el modelo tiende a completar con lo más probable. |
 | Prohíbe texto extra | Prohibición 4: sin saludos, sin markdown, sin bloques de código. Se refuerza en C.2 con Structured Outputs, que garantiza el formato a nivel de API y no solo por instrucción. |
+
+---
+
+### B.6 — Flujo de valor y flujo del sistema
+
+**Flujo de valor:**
+
+Consulta del cliente por WhatsApp → el sistema interpreta la intención y verifica stock/precio/cobertura en tiempo real contra el ERP → genera una respuesta inmediata y precisa (o el borrador de pedido) → el empleado deja de interrumpir la atención presencial → se reduce el tiempo de respuesta y se evita la pérdida de clientes por demoras.
+
+**Flujo técnico:**
+
+```text
+[Cliente] Envía mensaje de texto por WhatsApp
+        ▼
+[LLM] Extrae intención y parámetros → JSON
+        ▼
+[Código] Valida el JSON (Pydantic) → rechaza si hay campos inválidos
+         o intención fuera del Literal
+        ▼
+[SQL] Verifica datos reales: stock, precio, cobertura de obra social,
+      si requiere receta
+        ▼
+[Código] Si la intención es "crear_pedido" y todas las validaciones
+         pasaron: genera el borrador de despacho en el ERP
+        ▼
+[Código] Registra la interacción (texto original, intención
+         detectada, parámetros, respuesta) en la tabla de
+         auditoría interacciones
+        ▼
+[LLM] Redacta la respuesta humanizada con los datos reales
+      verificados
+        ▼
+[Sistema] Envía la respuesta al cliente por WhatsApp
+```
+
+El diagrama respeta la clasificación de B.4: el LLM aparece solo al principio (interpretar) y al final (redactar); todo el tramo del medio es código/SQL determinista. El paso de auditoría (`interacciones`) refuerza la coherencia con el artefacto diseñado en B.5.
+
+---
+
+### B.7 — Hipótesis más riesgosa
+
+El diseño asume que el LLM puede extraer correctamente el nombre y la dosis del medicamento a partir de texto libre con errores de tipeo, abreviaturas, nombres comerciales vs. genéricos y jerga coloquial del cliente; si esta extracción falla con frecuencia, el sistema no encuentra coincidencias en `productos` (o encuentra una incorrecta) y responde con datos reales pero del producto equivocado, socavando la confianza en todo el sistema.
+
+**Por qué es esta y no otra:** la Matriz (B.3) y el flujo (B.6) dependen por completo de que el medicamento extraído por el LLM sea la clave correcta para la consulta SQL determinista. Si esa extracción es poco confiable, el sistema falla en el primer eslabón sin importar qué tan bien diseñado esté el resto (Pydantic, SQL, System Prompt). Este argumento también justifica el uso de Few-shot prompting en C.4, mostrando ejemplos con nombres mal escritos o genéricos/comerciales mezclados.
