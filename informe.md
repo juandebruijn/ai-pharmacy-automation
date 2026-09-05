@@ -40,11 +40,11 @@
 
 | Pilar | Pregunta que responde | Aplicado al sistema (Farmacia) |
 | :--- | :--- | :--- |
-| *Performance* | ¿Cómo medimos el éxito? | • Tasa de resolución/automatización de consultas frecuentes de stock y precio (>85%).<br>• Reducción del tiempo de respuesta por WhatsApp (<15 segundos).<br>• Tasa de error en precios, descuentos y stock informado (0%).<br>• Precisión en la creación del pedido/borrador de despacho en el sistema (>98%). |
-| *Environment* | ¿Dónde opera? ¿Sistemas legados? | • Canal de cara al cliente: WhatsApp Business API.<br>• Sistema legado de gestión farmacéutica (base de datos relacional para inventarios, precios y recetas).<br>• Servidor/Middleware de orquestación del agente de IA. |
-| *Actuators* | ¿Qué puede hacer? | • Enviar mensajes de texto y opciones vía WhatsApp.<br>• Generar una solicitud/borrador de despacho de pedido en el ERP.<br>• Bloquear/reservar stock temporalmente en la base de datos.<br>• Solicitar al cliente la foto/imagen de la receta o credencial médica. |
-| *Sensors* | ¿Qué recibe y por qué canal? | • Mensajes de texto, imágenes de recetas médicas/credencial de OS por WhatsApp Webhook.<br>• Número de teléfono / ID del cliente.<br>• Datos de confirmación de stock, precios y validez de obras sociales enviados por las APIs internas del sistema. |
-| *Base de Conocimiento* | ¿Qué sabe el sistema? | • Base de datos estructurada SQL (catálogo de medicamentos/perfumería, stock en tiempo real, precios de lista).<br>• Vademécum institucional y convenios de obras sociales/prepagas.<br>• Base vectorial (RAG) con políticas de entrega a domicilio, zonas de cobertura, medios de pago y requisitos normativos para medicamentos bajo receta. |
+| **Performance** | ¿Cómo medimos el éxito? | • Tasa de resolución/automatización de consultas frecuentes de stock y precio (>85%).<br>• Reducción del tiempo de respuesta por WhatsApp (<15 segundos).<br>• Tasa de error en precios, descuentos y stock informado (0%).<br>• Precisión en la creación del pedido/borrador de despacho en el sistema (>98%). |
+| **Environment** | ¿Dónde opera? ¿Sistemas legados? | • Canal de cara al cliente: WhatsApp Business API.<br>• Sistema legado de gestión farmacéutica (base de datos relacional para inventarios, precios y recetas).<br>• Servidor/Middleware de orquestación del agente de IA. |
+| **Actuators** | ¿Qué puede hacer? | • Enviar mensajes de texto y opciones vía WhatsApp.<br>• Generar una solicitud/borrador de despacho de pedido en el ERP.<br>• Bloquear/reservar stock temporalmente en la base de datos.<br>• Solicitar al cliente la foto/imagen de la receta o credencial médica. |
+| **Sensors** | ¿Qué recibe y por qué canal? | • Mensajes de texto, imágenes de recetas médicas/credencial de OS por WhatsApp Webhook.<br>• Número de teléfono / ID del cliente.<br>• Datos de confirmación de stock, precios y validez de obras sociales enviados por las APIs internas del sistema. |
+| **Base de Conocimiento** | ¿Qué sabe el sistema? | • Base de datos estructurada SQL (catálogo de medicamentos/perfumería, stock en tiempo real, precios de lista).<br>• Vademécum institucional y convenios de obras sociales/prepagas.<br>• Base vectorial (RAG) con políticas de entrega a domicilio, zonas de cobertura, medios de pago y requisitos normativos para medicamentos bajo receta. |
 
 ---
 
@@ -66,10 +66,13 @@ tokens_en = len(enc.encode(consulta_en))
 print(f"ES: {tokens_es} tokens")
 print(f"EN: {tokens_en} tokens")
 
-📊 Resultado del conteo
-ES: 36 tokens
-EN: 36 tokens
+```
 
-💡 Reflexión técnica
-Las frases a procesar son principalmente en español, lo cual en modelos anteriores a GPT-4o eran penalizados frente a frases en ingles. A partir de este modelo la cantidad de tokens para procesar frases en español son similares a las de ingles, esto sumado a que ciertas palabras de las frases a procesar son técnicas (nombres de medicamentos, nombre de obra social etc), podemos concluir que procesar frases en español en textos cortos como un chat no va a encarecer el costo frente a procesar las mismas frases en ingles.
-\
+#### 📊 Resultado del conteo
+
+* **ES:** 36 tokens
+* **EN:** 36 tokens
+
+#### 💡 Reflexión técnica
+
+Las frases a procesar son principalmente en español, lo cual en modelos anteriores a GPT-4o eran penalizados frente a frases en inglés. A partir de este modelo la cantidad de tokens para procesar frases en español son similares a las de inglés, esto sumado a que ciertas palabras de las frases a procesar son técnicas (nombres de medicamentos, nombre de obra social, etc.), podemos concluir que procesar frases en español en textos cortos como un chat no va a encarecer el costo frente a procesar las mismas frases en inglés.
