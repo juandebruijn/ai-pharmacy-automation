@@ -404,9 +404,9 @@ El diseño asume que el LLM puede extraer correctamente el nombre y la dosis del
 
 ---
 
-### **C.5 — Cierre: Dónde se Conecta el Pipeline**
+### **C.5 — Cierre: Dónde se Conecta**
 
-Este script representa la capa de entrada y normalización lingüística (El Mozo) de nuestra arquitectura inteligente. Se conecta de forma directa en el paso intermedio entre el receptor de WhatsApp y la lógica transaccional de negocio, y representa el Paso 1 [LLM] y Paso 2 [Código] del flujo técnico (B.6). 
+El estado actual del proyecto representa la capa de entrada y normalización lingüística (El Mozo) de nuestra arquitectura inteligente. Se conecta de forma directa en el paso intermedio entre el receptor de WhatsApp y la lógica transaccional de negocio, y representa el Paso 1 [LLM] y Paso 2 [Código] del flujo técnico (B.6). 
 
 **Qué le falta al sistema para estar completo:**
-La arquitectura sigue careciendo de **Grounding y Base de Conocimiento dinámica**. El pipeline actualmente funciona con un lote estático de simulación semántica. Para un entorno de producción real, requiere implementar el sistema de recuperación semántica mediante Embeddings y una Base Vectorial (RAG), permitiendo al LLM consultar el catálogo y el stock real antes de formular cualquier respuesta.
+La arquitectura sigue careciendo de **Grounding y Base de Conocimiento dinámica**. El proyecto actualmente funciona con un lote estático de simulación semántica. Para un entorno de producción real, requiere implementar el sistema de recuperación semántica mediante Embeddings y una Base Vectorial (RAG), permitiendo al LLM consultar el catálogo y el stock real antes de formular cualquier respuesta.
