@@ -65,7 +65,7 @@ Editar el `.env` recién creado y completar:
 | Variable | Obligatoria | Descripción |
 | :--- | :---: | :--- |
 | `GEMINI_API_KEY` | Sí | Clave de la API de Google Gemini. Se obtiene en [aistudio.google.com/apikey](https://aistudio.google.com/apikey). |
-| `GEMINI_MODEL` | No | Modelo a usar. Si no se define, el script usa `gemini-2.5-flash`. |
+| `GEMINI_MODEL` | No | Modelo a usar. Si no se define, el script usa `gemini-3.6-flash`. |
 
 > ⚠️ El archivo `.env` está en `.gitignore` y nunca se commitea. Solo se versiona `.env.example`, sin valores.
 
@@ -88,3 +88,5 @@ python app.py "Hola, tenés Amoxidal 500 x14? lo necesito hoy, tengo Swiss Medic
 | `0` | La extracción validó contra el contrato de `schemas.py` |
 | `1` | `ValidationError` — el modelo respondió, pero violó el contrato |
 | `2` | Error de red o de la API — el pipeline no llegó a validar |
+
+> Los modelos `flash` devuelven `503 UNAVAILABLE` (alta demanda) con cierta frecuencia. El script reintenta hasta 3 veces con backoff exponencial antes de devolver el código `2`.

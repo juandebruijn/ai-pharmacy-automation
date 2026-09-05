@@ -14,6 +14,7 @@ Requiere GEMINI_API_KEY en un archivo .env (ver .env.example).
 
 import os
 import sys
+import time
 
 import httpx
 from dotenv import load_dotenv
@@ -76,7 +77,12 @@ El campo "confianza" es un número entre 0.0 y 1.0 que refleja qué tan claro fu
 mensaje: 1.0 si el pedido es inequívoco, valores bajos si es ambiguo o incompleto.\
 """
 
-MODELO_POR_DEFECTO = "gemini-2.5-flash"
+MODELO_POR_DEFECTO = "gemini-3.6-flash"
+
+# Los modelos flash devuelven 503 (alta demanda) con bastante frecuencia. Es una
+# falla transitoria, no un problema del contrato: se reintenta con backoff.
+MAX_REINTENTOS = 4
+ESPERA_BASE_SEG = 2.0
 
 INPUT_DEMO = (
     "Hola! Tienen Ibupirac 600 por 20 comprimidos? "
@@ -111,34 +117,59 @@ def llamar_modelo(client: genai.Client, texto_libre: str) -> str:
     coherencia intención/parámetros). Si delegáramos el parseo al SDK, esos
     errores quedarían invisibles.
 
-    Todo lo que falla acá es error de red o de API, nunca de contrato.
+    Todo lo que falla acá es error de red o de API, nunca de contrato. Las fallas
+    transitorias (503 por alta demanda, 429 por rate limit, timeouts) se
+    reintentan con backoff exponencial antes de darse por perdidas.
     """
-    try:
-        respuesta = client.models.generate_content(
-            model=os.getenv("GEMINI_MODEL", MODELO_POR_DEFECTO),
-            contents=texto_libre,
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=ConsultaFarmacia,
-                temperature=0,  # extracción determinista: no queremos creatividad
-            ),
+    config = types.GenerateContentConfig(
+        system_instruction=SYSTEM_PROMPT,
+        response_mime_type="application/json",
+        response_schema=ConsultaFarmacia,
+        temperature=0,  # extracción determinista: no queremos creatividad
+        # El pipeline no expone herramientas al modelo: solo extrae. Desactivarlo
+        # evita el warning del SDK y deja explícito que el LLM no puede ejecutar
+        # acciones (la regla de oro de B.3).
+        automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True),
+    )
+    modelo = os.getenv("GEMINI_MODEL", MODELO_POR_DEFECTO)
+
+    for intento in range(1, MAX_REINTENTOS + 1):
+        try:
+            respuesta = client.models.generate_content(
+                model=modelo, contents=texto_libre, config=config
+            )
+            break
+        except genai_errors.ClientError as e:
+            # 429 es transitorio (rate limit); el resto de los 4xx no lo es:
+            # clave inválida, modelo inexistente, request mal formado.
+            if e.code != 429:
+                raise ErrorDeRed(f"la API rechazó el request: {e}") from e
+            ultimo_error = e
+        except genai_errors.ServerError as e:
+            ultimo_error = e  # 5xx: alta demanda o falla temporal de Google
+        except (httpx.TimeoutException, httpx.TransportError) as e:
+            ultimo_error = e  # no llegamos a la API
+        except genai_errors.APIError as e:
+            raise ErrorDeRed(f"error de la API de Gemini: {e}") from e
+
+        if intento == MAX_REINTENTOS:
+            raise ErrorDeRed(
+                f"la API falló {MAX_REINTENTOS} veces seguidas: {ultimo_error}"
+            ) from ultimo_error
+
+        espera = ESPERA_BASE_SEG * (2 ** (intento - 1))
+        print(
+            f"  [reintento {intento}/{MAX_REINTENTOS - 1}] falla transitoria, "
+            f"esperando {espera:.0f}s...",
+            file=sys.stderr,
         )
-    except genai_errors.ClientError as e:
-        raise ErrorDeRed(f"la API rechazó el request (clave inválida o cuota): {e}") from e
-    except genai_errors.ServerError as e:
-        raise ErrorDeRed(f"error del lado de Google, reintentable: {e}") from e
-    except genai_errors.APIError as e:
-        raise ErrorDeRed(f"error de la API de Gemini: {e}") from e
-    except (httpx.TimeoutException, httpx.TransportError) as e:
-        raise ErrorDeRed(f"no se pudo llegar a la API: {e}") from e
+        time.sleep(espera)
 
     if not respuesta.text:
         # El modelo devolvió vacío (filtro de seguridad o corte de generación).
-        raise ErrorDeRed(
-            "el modelo devolvió una respuesta vacía "
-            f"(finish_reason={respuesta.candidates[0].finish_reason if respuesta.candidates else 'desconocido'})"
-        )
+        motivo = respuesta.candidates[0].finish_reason if respuesta.candidates else "desconocido"
+        raise ErrorDeRed(f"el modelo devolvió una respuesta vacía (finish_reason={motivo})")
+
     return respuesta.text
 
 
