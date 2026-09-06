@@ -85,7 +85,11 @@ Las frases a procesar son principalmente en español, lo cual en modelos anterio
 
 ### B.1 — Señal de dolor
 
-La principal señal de dolor es la latencia humana, acompañada por un alto volumen de consultas repetitivas. Los empleados de la farmacia deben interrumpir frecuentemente la atención presencial para consultar manualmente el stock y los precios de los productos solicitados. Esto genera demoras en la atención, cuellos de botella y riesgo de pérdida de clientes.
+La principal señal de dolor es la latencia humana, acompañada por un alto volumen de consultas repetitivas. Los empleados de la farmacia deben interrumpir frecuentemente la atención presencial para consultar manualmente el stock y los precios de los productos solicitados.
+
+**Quién lo sufre y con qué frecuencia:** lo sufre el empleado de mostrador, que en una sucursal de barrio recibe entre 40 y 60 consultas diarias por WhatsApp, con picos concentrados en las primeras horas de la mañana y al cierre. Cada una lo obliga a cortar la atención presencial durante 2 a 5 minutos para consultar el sistema de gestión o ir al depósito.
+
+**Consecuencia concreta de no resolverlo:** se acumulan demoras en el mostrador, las consultas de WhatsApp quedan sin responder durante los picos y el cliente que no recibe respuesta compra en la farmacia de la cuadra siguiente.
 
 ---
 
@@ -100,9 +104,9 @@ El usuario objetivo principal es el empleado de la farmacia encargado de gestion
 | Entrada del usuario (caos) | Intención (LLM) | Parámetros (LLM) | Acción de backend (determinista) | Riesgo |
 | :--- | :--- | :--- | :--- | :--- |
 | "¿Tienen Ibupirac 600 x20?" | `consulta_stock` | producto, presentacion, cantidad | Consultar disponibilidad en la tabla `productos`, filtrando por `sucursal_id`. | BAJO |
-| "¿Cuánto sale con OSDE?" | `consulta_precio_cobertura` | producto, presentacion, obra_social | Calcular `precio_lista` y aplicar el porcentaje de cobertura vigente contra la tabla de convenios. | MEDIO |
+| "¿Cuánto sale con OSDE?" | `consulta_precio_cobertura` | producto, presentacion, obra_social | Calcular `precio_lista` y aplicar el porcentaje de cobertura vigente contra `convenios`. | MEDIO |
 | "¿Me lo mandan hoy?" | `consulta_envio` | requiere_envio, urgencia | Verificar zona de cobertura de envío y ventana horaria de corte del delivery. | BAJO |
-| (Envía foto de la receta) | `validar_receta` | adjuntos (imagen), producto | Registrar la imagen adjunta y marcar el pedido como pendiente de validación por un farmacéutico; bloquear el despacho hasta su aprobación. | ALTO |
+| (Envía foto de la receta) | `validar_receta` | producto | Registrar la imagen adjunta y dejar el pedido en estado `pendiente_validacion`; bloquear el despacho hasta la aprobación del farmacéutico. | ALTO |
 | "Quiero 2 cajas de Ibupirac 600 x20 y que me las manden." | `crear_pedido` | producto, presentacion, cantidad, requiere_envio | Verificar stock, cobertura y receta (si aplica) y generar el borrador de despacho en `pedidos`. | ALTO |
 | "Hola, ¿cómo andan?" | `fuera_de_alcance` | (todos los campos en null) | No se ejecuta ninguna acción de backend; se responde con un mensaje genérico o se deriva a un empleado humano. | BAJO |
 
@@ -115,7 +119,7 @@ El usuario objetivo principal es el empleado de la farmacia encargado de gestion
 | Interpretación del mensaje de WhatsApp (texto libre → intención + parámetros) | LLM (probabilístico) | Requiere comprender lenguaje natural no estructurado, con variaciones de redacción, errores de tipeo y ambigüedad ("¿tienen...", "cuánto sale...", "quiero que me manden..."). No existe un conjunto finito de reglas/regex que cubra la variabilidad de cómo un cliente real escribe. Es la tarea central para la que un LLM está diseñado: mapear texto libre a una estructura. |
 | Consulta de stock en el ERP | Determinista (SQL) | Es una lectura exacta sobre una tabla de inventario. La respuesta es binaria/numérica (hay o no hay, y cuánto), no admite interpretación. Dejar que el LLM "estime" el stock es exactamente el error documentado en A.2 (alucinación). |
 | Cálculo de precio con descuento de obra social | Determinista (código/SQL) | Es una operación matemática (precio de lista × % cobertura). Tiene consecuencia financiera directa, por lo que un error de cálculo del LLM es inaceptable. El LLM no debe calcular montos, solo comunicarlos. |
-| Validación de cobertura/credencial OSDE | Determinista (SQL interno) | Consulta contra una tabla propia de convenios con obras sociales. Se resuelve por lectura de datos, no por interpretación de lenguaje. Decisión de alcance: se implementa como tabla interna con % fijo en esta entrega; la integración con APIs externas de las obras sociales queda para una iteración posterior, dado el costo de complejidad adicional que no aporta al objetivo de esta entrega. |
+| Validación de cobertura/credencial OSDE | Determinista (SQL interno) | Consulta contra la tabla `convenios`, que guarda el porcentaje vigente de cada obra social. Se resuelve por lectura de datos, no por interpretación de lenguaje. Decisión de alcance: se implementa como tabla interna con % fijo en esta entrega; la integración con APIs externas de las obras sociales queda para una iteración posterior, dado el costo de complejidad adicional que no aporta al objetivo de esta entrega. |
 | Verificación de Venta Libre vs. Venta Bajo Receta | Determinista (SQL, flag en catálogo) | Es una regla de negocio binaria (el medicamento tiene o no un atributo "requiere receta" en el catálogo). No requiere criterio ni interpretación: es una condición fija que no puede quedar sujeta a la probabilidad de un LLM, por el riesgo sanitario/legal que implica errar. |
 | Generación del borrador de pedido/despacho en el ERP | Determinista (código) | Es una escritura en el sistema (ALTO riesgo, según B.3). Debe ejecutarse solo si todas las validaciones anteriores (stock, cobertura, receta) fueron confirmadas por el backend. El LLM nunca debe tener permiso de escritura directa. |
 | Redacción de la respuesta final al cliente (humanización) | LLM (probabilístico) | Una vez que el backend determinista resolvió los datos reales (stock, precio, cobertura), el LLM solo redacta la respuesta en lenguaje natural y tono conversacional. Acá el LLM no decide ningún dato, solo lo comunica: es generación de texto, no una decisión de negocio. |
@@ -194,15 +198,28 @@ Content-Type: application/json
 
 #### b) Esquema de la base de datos (SQL)
 
-Cuatro tablas: `clientes` y `productos` (entidades principales del dominio), `interacciones` (registro de qué intención detectó el LLM y qué respondió) y `pedidos` (el actuador de escritura).
+Cinco tablas: `clientes` y `productos` (entidades principales del dominio), `convenios` (los acuerdos con obras sociales que la Base de Conocimiento de A.3 ya declaraba), `interacciones` (registro de qué intención detectó el LLM y qué respondió) y `pedidos` (el actuador de escritura).
 
 ```sql
+-- Convenios vigentes con obras sociales y prepagas. Es la tabla que resuelve el
+-- descuento que B.4 clasifica como determinista: el LLM nunca calcula ni informa
+-- un porcentaje, solo comunica el que devuelve esta tabla.
+CREATE TABLE convenios (
+    convenio_id       SERIAL PRIMARY KEY,
+    cobertura         VARCHAR(30)   NOT NULL UNIQUE,  -- OSDE, SWISS_MEDICAL, PAMI...
+    nombre_comercial  VARCHAR(80)   NOT NULL,
+    porcentaje_desc   NUMERIC(5,2)  NOT NULL CHECK (porcentaje_desc BETWEEN 0 AND 100),
+    vigente_desde     DATE          NOT NULL,
+    vigente_hasta     DATE,                           -- NULL = sin fecha de baja
+    activo            BOOLEAN       NOT NULL DEFAULT TRUE
+);
+
 -- Entidad: quién consulta. Se resuelve a partir del teléfono que manda el webhook.
 CREATE TABLE clientes (
     cliente_id        SERIAL PRIMARY KEY,
     telefono          VARCHAR(20)   NOT NULL UNIQUE,  -- clave de negocio del canal WhatsApp
     nombre            VARCHAR(120),
-    obra_social       VARCHAR(60),                    -- NULL = particular, sin cobertura
+    obra_social       VARCHAR(30)   REFERENCES convenios(cobertura),  -- NULL = particular
     nro_afiliado      VARCHAR(40),
     creado_en         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
@@ -257,7 +274,8 @@ CREATE TABLE pedidos (
     precio_final      NUMERIC(12,2) NOT NULL,         -- calculado por SQL, NUNCA por el LLM
     receta_url        TEXT,                           -- obligatoria si productos.requiere_receta
     estado            VARCHAR(20)   NOT NULL DEFAULT 'borrador'
-        CHECK (estado IN ('borrador','confirmado','despachado','cancelado')),
+        CHECK (estado IN ('borrador','pendiente_validacion','confirmado',
+                          'despachado','cancelado')),
     creado_en         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
 );
 
@@ -376,9 +394,6 @@ El diagrama respeta la clasificación de B.4: el LLM aparece solo al principio (
 ### B.7 — Hipótesis más riesgosa
 
 El diseño asume que el LLM puede extraer correctamente el nombre y la dosis del medicamento a partir de texto libre con errores de tipeo, abreviaturas, nombres comerciales vs. genéricos y jerga coloquial del cliente; si esta extracción falla con frecuencia, el sistema no encuentra coincidencias en `productos` (o encuentra una incorrecta) y responde con datos reales pero del producto equivocado, socavando la confianza en todo el sistema.
-
-**Por qué es esta y no otra:** la Matriz (B.3) y el flujo (B.6) dependen por completo de que el medicamento extraído por el LLM sea la clave correcta para la consulta SQL determinista. Si esa extracción es poco confiable, el sistema falla en el primer eslabón sin importar qué tan bien diseñado esté el resto (Pydantic, SQL, System Prompt). Este argumento también justifica el uso de Few-shot prompting en C.4, mostrando ejemplos con nombres mal escritos o genéricos/comerciales mezclados.
-
 
 ---
 
