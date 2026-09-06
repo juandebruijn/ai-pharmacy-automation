@@ -195,7 +195,7 @@ def imprimir_resultado(consulta: ConsultaFarmacia) -> None:
 
 # Puente hacia la Parte B: qué hace el código determinista con cada intención.
 ACCIONES_BACKEND = {
-    "consulta_stock": "SELECT stock_disponible FROM productos WHERE sucursal_id = ? AND nombre_comercial ILIKE ?",
+    "consulta_stock": "SELECT stock_disponible FROM productos WHERE sucursal_id = ? AND nombre_comercial LIKE ?",
     "consulta_precio_cobertura": "SELECT precio_lista FROM productos + cálculo de cobertura contra convenio",
     "consulta_envio": "consulta de zona/horario contra la matriz de reglas de delivery",
     "validar_receta": "derivar el adjunto al farmacéutico para validación manual",

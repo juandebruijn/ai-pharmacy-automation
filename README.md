@@ -1,13 +1,13 @@
-# AI Pharmacy Automation
+# Automatización de Farmacia con IA
 
-## 📌 Domain
+## 📌 Dominio
 
-**Automated Stock, Inquiry, and Order Management for Pharmacies.**
-An AI-driven system designed to automate customer inquiries via WhatsApp, check real-time stock and pricing against the pharmacy's ERP system, and generate dispatch orders—eliminating manual overhead for pharmacy staff.
+**Gestión automatizada de stock, consultas y pedidos para farmacias.**
+Un sistema con IA que automatiza las consultas de los clientes por WhatsApp, verifica stock y precios en tiempo real contra el ERP de la farmacia y genera las órdenes de despacho, eliminando la carga manual de los empleados.
 
 ---
 
-## 👥 Team Members
+## 👥 Integrantes
 
 * Camila Belén Capua
 * Franco Salama

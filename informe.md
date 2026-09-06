@@ -85,7 +85,11 @@ Las frases a procesar son principalmente en español, lo cual en modelos anterio
 
 ### B.1 — Señal de dolor
 
-La principal señal de dolor es la latencia humana, acompañada por un alto volumen de consultas repetitivas. Los empleados de la farmacia deben interrumpir frecuentemente la atención presencial para consultar manualmente el stock y los precios de los productos solicitados. Esto genera demoras en la atención, cuellos de botella y riesgo de pérdida de clientes.
+La principal señal de dolor es la latencia humana, acompañada por un alto volumen de consultas repetitivas. Los empleados de la farmacia deben interrumpir frecuentemente la atención presencial para consultar manualmente el stock y los precios de los productos solicitados.
+
+**Quién lo sufre y con qué frecuencia:** lo sufre el empleado de mostrador, que en una sucursal de barrio recibe entre 40 y 60 consultas diarias por WhatsApp, con picos concentrados en las primeras horas de la mañana y al cierre. Cada una lo obliga a cortar la atención presencial durante 2 a 5 minutos para consultar el sistema de gestión o ir al depósito.
+
+**Consecuencia concreta de no resolverlo:** se acumulan demoras en el mostrador, las consultas de WhatsApp quedan sin responder durante los picos y el cliente que no recibe respuesta compra en la farmacia de la cuadra siguiente.
 
 ---
 
@@ -100,9 +104,9 @@ El usuario objetivo principal es el empleado de la farmacia encargado de gestion
 | Entrada del usuario (caos) | Intención (LLM) | Parámetros (LLM) | Acción de backend (determinista) | Riesgo |
 | :--- | :--- | :--- | :--- | :--- |
 | "¿Tienen Ibupirac 600 x20?" | `consulta_stock` | producto, presentacion, cantidad | Consultar disponibilidad en la tabla `productos`, filtrando por `sucursal_id`. | BAJO |
-| "¿Cuánto sale con OSDE?" | `consulta_precio_cobertura` | producto, presentacion, obra_social | Calcular `precio_lista` y aplicar el porcentaje de cobertura vigente contra la tabla de convenios. | MEDIO |
+| "¿Cuánto sale con OSDE?" | `consulta_precio_cobertura` | producto, presentacion, obra_social | Calcular `precio_lista` y aplicar el porcentaje de cobertura vigente contra `convenios`. | MEDIO |
 | "¿Me lo mandan hoy?" | `consulta_envio` | requiere_envio, urgencia | Verificar zona de cobertura de envío y ventana horaria de corte del delivery. | BAJO |
-| (Envía foto de la receta) | `validar_receta` | adjuntos (imagen), producto | Registrar la imagen adjunta y marcar el pedido como pendiente de validación por un farmacéutico; bloquear el despacho hasta su aprobación. | ALTO |
+| (Envía foto de la receta) | `validar_receta` | producto | Registrar la imagen adjunta y dejar el pedido en estado `pendiente_validacion`; bloquear el despacho hasta la aprobación del farmacéutico. | ALTO |
 | "Quiero 2 cajas de Ibupirac 600 x20 y que me las manden." | `crear_pedido` | producto, presentacion, cantidad, requiere_envio | Verificar stock, cobertura y receta (si aplica) y generar el borrador de despacho en `pedidos`. | ALTO |
 | "Hola, ¿cómo andan?" | `fuera_de_alcance` | (todos los campos en null) | No se ejecuta ninguna acción de backend; se responde con un mensaje genérico o se deriva a un empleado humano. | BAJO |
 
@@ -115,7 +119,7 @@ El usuario objetivo principal es el empleado de la farmacia encargado de gestion
 | Interpretación del mensaje de WhatsApp (texto libre → intención + parámetros) | LLM (probabilístico) | Requiere comprender lenguaje natural no estructurado, con variaciones de redacción, errores de tipeo y ambigüedad ("¿tienen...", "cuánto sale...", "quiero que me manden..."). No existe un conjunto finito de reglas/regex que cubra la variabilidad de cómo un cliente real escribe. Es la tarea central para la que un LLM está diseñado: mapear texto libre a una estructura. |
 | Consulta de stock en el ERP | Determinista (SQL) | Es una lectura exacta sobre una tabla de inventario. La respuesta es binaria/numérica (hay o no hay, y cuánto), no admite interpretación. Dejar que el LLM "estime" el stock es exactamente el error documentado en A.2 (alucinación). |
 | Cálculo de precio con descuento de obra social | Determinista (código/SQL) | Es una operación matemática (precio de lista × % cobertura). Tiene consecuencia financiera directa, por lo que un error de cálculo del LLM es inaceptable. El LLM no debe calcular montos, solo comunicarlos. |
-| Validación de cobertura/credencial OSDE | Determinista (SQL interno) | Consulta contra una tabla propia de convenios con obras sociales. Se resuelve por lectura de datos, no por interpretación de lenguaje. Decisión de alcance: se implementa como tabla interna con % fijo en esta entrega; la integración con APIs externas de las obras sociales queda para una iteración posterior, dado el costo de complejidad adicional que no aporta al objetivo de esta entrega. |
+| Validación de cobertura/credencial OSDE | Determinista (SQL interno) | Consulta contra la tabla `convenios`, que guarda el porcentaje vigente de cada obra social. Se resuelve por lectura de datos, no por interpretación de lenguaje. Decisión de alcance: se implementa como tabla interna con % fijo en esta entrega; la integración con APIs externas de las obras sociales queda para una iteración posterior, dado el costo de complejidad adicional que no aporta al objetivo de esta entrega. |
 | Verificación de Venta Libre vs. Venta Bajo Receta | Determinista (SQL, flag en catálogo) | Es una regla de negocio binaria (el medicamento tiene o no un atributo "requiere receta" en el catálogo). No requiere criterio ni interpretación: es una condición fija que no puede quedar sujeta a la probabilidad de un LLM, por el riesgo sanitario/legal que implica errar. |
 | Generación del borrador de pedido/despacho en el ERP | Determinista (código) | Es una escritura en el sistema (ALTO riesgo, según B.3). Debe ejecutarse solo si todas las validaciones anteriores (stock, cobertura, receta) fueron confirmadas por el backend. El LLM nunca debe tener permiso de escritura directa. |
 | Redacción de la respuesta final al cliente (humanización) | LLM (probabilístico) | Una vez que el backend determinista resolvió los datos reales (stock, precio, cobertura), el LLM solo redacta la respuesta en lenguaje natural y tono conversacional. Acá el LLM no decide ningún dato, solo lo comunica: es generación de texto, no una decisión de negocio. |
@@ -192,80 +196,121 @@ Content-Type: application/json
 
 ---
 
-#### b) Esquema de la base de datos (SQL)
+#### b) Esquema de la base de datos (MySQL)
 
-Cuatro tablas: `clientes` y `productos` (entidades principales del dominio), `interacciones` (registro de qué intención detectó el LLM y qué respondió) y `pedidos` (el actuador de escritura).
+Cinco tablas: `clientes` y `productos` (entidades principales del dominio), `convenios` (los acuerdos con obras sociales que la Base de Conocimiento de A.3 ya declaraba), `interacciones` (registro de qué intención detectó el LLM y qué respondió) y `pedidos` (el actuador de escritura).
 
 ```sql
+-- utf8mb4 no es opcional: los mensajes de WhatsApp traen emojis y acentos, y el
+-- utf8 de MySQL solo cubre 3 bytes por carácter (un emoji necesita 4).
+CREATE DATABASE farmacia CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci;
+USE farmacia;
+
+-- Convenios vigentes con obras sociales y prepagas. Es la tabla que resuelve el
+-- descuento que B.4 clasifica como determinista: el LLM nunca calcula ni informa
+-- un porcentaje, solo comunica el que devuelve esta tabla.
+CREATE TABLE convenios (
+    convenio_id       INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    cobertura         VARCHAR(30)   NOT NULL UNIQUE,  -- OSDE, SWISS_MEDICAL, PAMI...
+    nombre_comercial  VARCHAR(80)   NOT NULL,
+    porcentaje_desc   DECIMAL(5,2)  NOT NULL CHECK (porcentaje_desc BETWEEN 0 AND 100),
+    vigente_desde     DATE          NOT NULL,
+    vigente_hasta     DATE          NULL,             -- NULL = sin fecha de baja
+    activo            BOOLEAN       NOT NULL DEFAULT TRUE
+) ENGINE=InnoDB;
+
 -- Entidad: quién consulta. Se resuelve a partir del teléfono que manda el webhook.
 CREATE TABLE clientes (
-    cliente_id        SERIAL PRIMARY KEY,
+    cliente_id        INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
     telefono          VARCHAR(20)   NOT NULL UNIQUE,  -- clave de negocio del canal WhatsApp
-    nombre            VARCHAR(120),
-    obra_social       VARCHAR(60),                    -- NULL = particular, sin cobertura
-    nro_afiliado      VARCHAR(40),
-    creado_en         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-);
+    nombre            VARCHAR(120)  NULL,
+    obra_social       VARCHAR(30)   NULL,             -- NULL = particular, sin cobertura
+    nro_afiliado      VARCHAR(40)   NULL,
+    creado_en         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_clientes_convenio
+        FOREIGN KEY (obra_social) REFERENCES convenios(cobertura)
+        ON UPDATE CASCADE ON DELETE SET NULL
+) ENGINE=InnoDB;
 
 -- Entidad principal del dominio: catálogo con stock y precio POR SUCURSAL.
 -- Esta tabla es la AUTORIDAD: es lo que el modelo de A.2 no tenía y por eso alucinó.
 CREATE TABLE productos (
-    producto_id       SERIAL PRIMARY KEY,
+    producto_id       INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
     sucursal_id       VARCHAR(10)   NOT NULL,
     codigo_barras     VARCHAR(20)   NOT NULL,
     droga             VARCHAR(120)  NOT NULL,         -- ej. "Ibuprofeno"
     nombre_comercial  VARCHAR(120)  NOT NULL,         -- ej. "Ibupirac"
     presentacion      VARCHAR(60)   NOT NULL,         -- ej. "600mg x 20 comprimidos"
-    precio_lista      NUMERIC(12,2) NOT NULL CHECK (precio_lista >= 0),
-    stock_disponible  INTEGER       NOT NULL DEFAULT 0 CHECK (stock_disponible >= 0),
-    stock_reservado   INTEGER       NOT NULL DEFAULT 0 CHECK (stock_reservado >= 0),
+    precio_lista      DECIMAL(12,2) NOT NULL CHECK (precio_lista >= 0),
+    stock_disponible  INT           NOT NULL DEFAULT 0 CHECK (stock_disponible >= 0),
+    stock_reservado   INT           NOT NULL DEFAULT 0 CHECK (stock_reservado >= 0),
     requiere_receta   BOOLEAN       NOT NULL DEFAULT FALSE,  -- venta libre vs. bajo receta
-    vencimiento       DATE,
-    actualizado_en    TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
-    UNIQUE (sucursal_id, codigo_barras)
-);
+    vencimiento       DATE          NULL,
+    actualizado_en    TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                    ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uq_productos_sucursal_barras (sucursal_id, codigo_barras),
+    KEY idx_productos_busqueda (sucursal_id, nombre_comercial)
+) ENGINE=InnoDB;
 
 -- Trazabilidad del agente: qué entró, qué entendió el LLM y qué respondió.
 -- Permite auditar alucinaciones y medir las métricas de Performance del PEAS.
 CREATE TABLE interacciones (
-    interaccion_id    BIGSERIAL PRIMARY KEY,
+    interaccion_id    BIGINT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
     message_id        VARCHAR(80)   NOT NULL UNIQUE,  -- idempotencia del webhook
-    cliente_id        INTEGER       REFERENCES clientes(cliente_id),
-    canal             VARCHAR(20)   NOT NULL DEFAULT 'whatsapp',
+    cliente_id        INT UNSIGNED  NULL,
+    canal             ENUM('whatsapp','web','telefonico') NOT NULL DEFAULT 'whatsapp',
     sucursal_id       VARCHAR(10)   NOT NULL,
     texto_libre       TEXT          NOT NULL,         -- input crudo del usuario
-    intencion         VARCHAR(30)   NOT NULL
-        CHECK (intencion IN ('consulta_stock','consulta_precio_cobertura',
-                             'consulta_envio','validar_receta',
-                             'crear_pedido','fuera_de_alcance')),
-    parametros_json   JSONB,                          -- salida validada por Pydantic (C.1)
+    -- El ENUM es el espejo exacto del Literal de schemas.py (C.1) y de las
+    -- etiquetas de la Matriz (B.3). Agregar una intención obliga a tocar los
+    -- tres lugares a la vez, que es justo lo que queremos.
+    intencion         ENUM('consulta_stock',
+                           'consulta_precio_cobertura',
+                           'consulta_envio',
+                           'validar_receta',
+                           'crear_pedido',
+                           'fuera_de_alcance')        NOT NULL,
+    parametros_json   JSON          NULL,             -- salida validada por Pydantic (C.1)
     valido_schema     BOOLEAN       NOT NULL,         -- FALSE si hubo ValidationError
-    respuesta_enviada TEXT,
-    modelo_usado      VARCHAR(50),
-    tokens_totales    INTEGER,                        -- costo real por consulta (ver A.4)
-    latencia_ms       INTEGER,
-    creado_en         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-);
+    respuesta_enviada TEXT          NULL,
+    modelo_usado      VARCHAR(50)   NULL,
+    tokens_totales    INT           NULL,             -- costo real por consulta (ver A.4)
+    latencia_ms       INT           NULL,
+    creado_en         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_interacciones_cliente
+        FOREIGN KEY (cliente_id) REFERENCES clientes(cliente_id),
+    KEY idx_interacciones_cliente (cliente_id, creado_en DESC)
+) ENGINE=InnoDB;
 
 -- Actuador de escritura: el borrador de despacho. Riesgo ALTO en la Matriz de B.3.
 CREATE TABLE pedidos (
-    pedido_id         SERIAL PRIMARY KEY,
-    interaccion_id    BIGINT        NOT NULL REFERENCES interacciones(interaccion_id),
-    cliente_id        INTEGER       NOT NULL REFERENCES clientes(cliente_id),
-    producto_id       INTEGER       NOT NULL REFERENCES productos(producto_id),
-    cantidad          INTEGER       NOT NULL CHECK (cantidad > 0),
-    precio_final      NUMERIC(12,2) NOT NULL,         -- calculado por SQL, NUNCA por el LLM
-    receta_url        TEXT,                           -- obligatoria si productos.requiere_receta
-    estado            VARCHAR(20)   NOT NULL DEFAULT 'borrador'
-        CHECK (estado IN ('borrador','confirmado','despachado','cancelado')),
-    creado_en         TIMESTAMPTZ   NOT NULL DEFAULT NOW()
-);
-
-CREATE INDEX idx_productos_busqueda    ON productos (sucursal_id, nombre_comercial);
-CREATE INDEX idx_interacciones_cliente ON interacciones (cliente_id, creado_en DESC);
+    pedido_id         INT UNSIGNED  NOT NULL AUTO_INCREMENT PRIMARY KEY,
+    interaccion_id    BIGINT UNSIGNED NOT NULL,
+    cliente_id        INT UNSIGNED  NOT NULL,
+    producto_id       INT UNSIGNED  NOT NULL,
+    cantidad          INT           NOT NULL CHECK (cantidad > 0),
+    precio_final      DECIMAL(12,2) NOT NULL,         -- calculado por SQL, NUNCA por el LLM
+    receta_url        TEXT          NULL,             -- obligatoria si productos.requiere_receta
+    estado            ENUM('borrador',
+                           'pendiente_validacion',
+                           'confirmado',
+                           'despachado',
+                           'cancelado')               NOT NULL DEFAULT 'borrador',
+    creado_en         TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_pedidos_interaccion
+        FOREIGN KEY (interaccion_id) REFERENCES interacciones(interaccion_id),
+    CONSTRAINT fk_pedidos_cliente
+        FOREIGN KEY (cliente_id) REFERENCES clientes(cliente_id),
+    CONSTRAINT fk_pedidos_producto
+        FOREIGN KEY (producto_id) REFERENCES productos(producto_id)
+) ENGINE=InnoDB;
 ```
 
-**Consistencia con el resto del brief:** el `CHECK` sobre `interacciones.intencion` replica en la base el mismo enum que el `Literal` de `schemas.py` (C.1) y que las etiquetas de la Matriz (B.3) — si alguien agrega una intención en un lado y no en el otro, la base rechaza el `INSERT`. `precio_final` se guarda en `pedidos` y nunca se le pide al LLM: es la regla de oro de B.3 aplicada al esquema (la IA interpreta, el SQL decide).
+**Consistencia con el resto del brief:** el `ENUM` de `interacciones.intencion` es el espejo exacto del `Literal` de `schemas.py` (C.1) y de las etiquetas de la Matriz (B.3) — si alguien agrega una intención en un lado y no en el otro, la base rechaza el `INSERT`. `precio_final` se guarda en `pedidos` y nunca se le pide al LLM: es la regla de oro de B.3 aplicada al esquema (la IA interpreta, el SQL decide).
+
+**Por qué `ENUM` y no `CHECK`:** para un conjunto de valores cerrado y conocido de antemano, `ENUM` es la forma idiomática en MySQL — se valida solo, se autodocumenta al leer el `DESCRIBE` y se almacena como un entero interno en vez de repetir la cadena en cada fila. `CHECK` queda reservado para lo que `ENUM` no puede expresar: rangos numéricos (`precio_lista >= 0`, `cantidad > 0`, `porcentaje_desc BETWEEN 0 AND 100`). La contrapartida de `ENUM` es que sumar una intención exige un `ALTER TABLE`, pero eso no es un costo: agregar una intención ya obliga a tocar el `Literal` de C.1 y la Matriz de B.3, y que la base también lo exija es la garantía de que los tres no se desincronicen.
+
+**Requisitos de la implementación:** `CHECK` se aplica desde MySQL 8.0.16 (en versiones anteriores se parsea y se ignora silenciosamente). Las claves foráneas necesitan `InnoDB`, que es el motor por defecto desde 5.5. `TIMESTAMP` guarda en UTC y convierte según la zona de la sesión, lo que resuelve el requisito de trazabilidad horaria del campo `timestamp` del contrato de B.5.a.
 
 ---
 
@@ -376,9 +421,6 @@ El diagrama respeta la clasificación de B.4: el LLM aparece solo al principio (
 ### B.7 — Hipótesis más riesgosa
 
 El diseño asume que el LLM puede extraer correctamente el nombre y la dosis del medicamento a partir de texto libre con errores de tipeo, abreviaturas, nombres comerciales vs. genéricos y jerga coloquial del cliente; si esta extracción falla con frecuencia, el sistema no encuentra coincidencias en `productos` (o encuentra una incorrecta) y responde con datos reales pero del producto equivocado, socavando la confianza en todo el sistema.
-
-**Por qué es esta y no otra:** la Matriz (B.3) y el flujo (B.6) dependen por completo de que el medicamento extraído por el LLM sea la clave correcta para la consulta SQL determinista. Si esa extracción es poco confiable, el sistema falla en el primer eslabón sin importar qué tan bien diseñado esté el resto (Pydantic, SQL, System Prompt). Este argumento también justifica el uso de Few-shot prompting en C.4, mostrando ejemplos con nombres mal escritos o genéricos/comerciales mezclados.
-
 
 ---
 
