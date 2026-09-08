@@ -13,27 +13,37 @@
 
 ### A.2 — Evidencia de la necesidad ("El Proveedor Enojado")
 
-#### 💬 Prompt enviado al modelo (Gemini)
+Para demostrar que la alucinación no es una falla particular de un proveedor sino una limitación arquitectónica estructural de los LLMs al carecer de una Base de Conocimiento, se ejecutó la misma consulta en dos modelos distintos (**Gemini 1.5 Pro** y **GPT-4o**).
+
+#### 💬 Prompt enviado a los modelos
 > *"Actuá como el sistema de atención por WhatsApp de Farmacia San Juan. Un usuario pregunta: 'Hola! Tienen stock de Ibupirac 600mg por 20 comprimidos, cuánto sale con descuento de OSDE y me lo pueden mandar hoy a la tarde?' Respondé como lo haría el sistema."*
 
-#### 🤖 Respuesta obtenida del modelo
+---
+
+#### 🤖 Proveedor 1: Gemini
+
 > *"¡Hola! Sí, contamos con stock disponible de Ibupirac 600mg x 20 comprimidos. El precio de lista es de $4.500, y con la cobertura del 40% de OSDE te queda en $2.700. Podemos realizar el envío a tu domicilio hoy entre las 15:00 y las 18:00 hs. ¿Te gustaría que te lo reservemos?"*
 
-#### 🔍 Documentación del fallo
+#### 🤖 Proveedor 2: GPT-4o
 
-* **Qué inventó (Alucinación):**
-  * **Stock disponible:** Afirmó contar con unidades en la sucursal sin consultar inventarios.
-  * **Precios y cobertura:** Inventó el precio de lista y el porcentaje de descuento de la obra social sin validar el vademécum ni la credencial/plan del afiliado.
-  * **Logística:** Asignó rangos horarios de entrega y factibilidad de delivery sin consultar la disponibilidad del servicio.
-  * **Nivel de confianza:** *Extremo*. El modelo respondió de forma directa, afirmativa y profesional, sin advertir que carecía de acceso a la base de datos de la farmacia.
+> *"¡Hola! Gracias por comunicarte con Farmacia San Juan. Sí, tenemos en stock el Ibupirac 600mg por 20 comprimidos. El valor sin descuento es de $5.200, pero presentando tu credencial de OSDE aplicamos el 40% de descuento habitual, abonando $3.120. Los envíos a domicilio los realizamos hoy por la tarde de 16:00 a 19:00 hs. ¿Querés que dejemos asentado tu pedido?"*
 
-* **Qué le faltó al modelo para responder correctamente:**
-  * Conexión en tiempo real a la base de datos (SQL) del ERP/sistema de gestión farmacéutico para verificar stock por lote/vencimiento.
-  * Integración con el vademécum y el validador online de obras sociales y prepagas.
+---
+
+#### 🔍 Documentación y comparación del fallo
+
+* **Qué inventaron ambos modelos (Alucinación consistente):**
+  * **Stock disponible:** Ambos afirmaron asertivamente contar con stock sin consultar ninguna base de inventario en tiempo real.
+  * **Precios y cobertura:** Ambos inventaron precios de lista distintos ($4.500 vs. $5.200) y asumieron porcentajes de cobertura de la obra social (40%) sin validar el vademécum vigente ni el plan del afiliado.
+  * **Logística:** Ambos asignaron rangos horarios de entrega ficticios.
+  * **Nivel de confianza:** *Extremo en ambos casos*. Ninguno de los dos modelos expresó incertidumbre ni advirtió al usuario que no poseía conexión con los sistemas de la farmacia.
+
+* **Qué le faltó a los sistemas para responder correctamente:**
+  * Conexión en tiempo real a la base de datos (SQL) del ERP/sistema de gestión farmacéutico para verificar stock real por lote.
+  * Integración con el vademécum y el validador online de obras sociales/prepagas.
   * Acceso a la matriz de reglas de negocio para delivery y normativas de venta (Venta Libre vs. Venta Bajo Receta).
 
-> ⚠️ **Conclusión de la prueba:** El modelo no falla por ser "malo", sino por la ausencia de una **Base de Conocimiento** integrada. La alucinación es la consecuencia directa de forzar al LLM a responder sobre datos dinámicos privados sin la arquitectura de integración correspondiente.
-
+> ⚠️ **Conclusión de la prueba (Comparación de Proveedores):** La réplica del experimento en múltiples proveedores confirma que el modelo no falla por ser "malo" ni por una debilidad del proveedor elegido. La alucinación es la consecuencia inevitable de la ausencia de la **Base de Conocimiento** en la arquitectura del sistema.
 ---
 
 ### A.3 — PEAS extendido (5 pilares)
