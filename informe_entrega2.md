@@ -500,3 +500,11 @@ $ python etl_purga.py
 
 ---
 
+### B.6 — Killer Queries
+
+Las tres consultas trampa con sus resultados reales están en **[`resultados_killer_queries.md`](resultados_killer_queries.md)**.
+
+Reproducibles con `python vector_db.py --killer`.
+
+---
+
