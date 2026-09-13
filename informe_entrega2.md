@@ -508,3 +508,40 @@ Reproducibles con `python vector_db.py --killer`.
 
 ---
 
+## Parte C — Coherencia e informe
+
+### C.1 — Cadena de coherencia con la Entrega 1
+
+| Elemento de la Entrega 1 | Cómo se implementa en la Entrega 2 |
+| :--- | :--- |
+| **Columna "Base de Conocimiento" del PEAS** (A.3), que declaraba una *"base vectorial (RAG) con políticas de entrega a domicilio, zonas de cobertura, medios de pago y requisitos normativos para medicamentos bajo receta"* | ← Es literalmente la colección `politicas_farmacia`: `logistica` (DOC-001…006) son las políticas de entrega y las zonas, `pagos` (DOC-007, 008) los medios de pago, `cobertura` (DOC-009…012) los convenios, `normativa` (DOC-013…016, 020) los requisitos para medicamentos bajo receta. El PEAS listaba las cuatro cosas; las cuatro están, una categoría por cada una. |
+| **Campos de filtrado de la Matriz de Intenciones** (B.3) | ← Son los metadatos. `sucursal_id`, que en la Entrega 1 era campo obligatorio del contrato de la API porque *"el stock y los precios son por sucursal"*, es ahora el metadato `sucursal` con el operador `$in`. Y las **seis etiquetas cerradas** del contrato de intenciones (`consulta_stock`, `consulta_precio_cobertura`, `consulta_envio`, `validar_receta`, `crear_pedido`, `fuera_de_alcance`) son el dominio de valores de `intencion_relacionada`: el mismo conjunto que el `Literal` de `schemas.py` y que el `ENUM` de `interacciones.intencion` en el esquema MySQL de B.5.b. Agregar una intención sigue obligando a tocar los cuatro lugares a la vez, que es lo que queremos. |
+| **Parámetros que el LLM extraía del `texto_libre`** | ← Ahora se resuelven en el `where`. El parámetro `obra_social` que `schemas.py` validaba contra la lista de convenios vigentes se convierte en `{"categoria": {"$eq": "cobertura"}}` + `{"vigente": {"$eq": True}}`; el `sucursal_id` del request se convierte en `{"sucursal": {"$in": [sucursal, "TODAS"]}}`; el `requiere_envio` que el LLM marcaba en `true`/`false` selecciona la categoría `logistica`. El LLM sigue haciendo lo mismo que en la Entrega 1 —convertir texto libre en estructura—, pero esa estructura ya no alimenta solo un `SELECT`: alimenta el filtro duro de la búsqueda vectorial. |
+
+El principio de B.4 de la Entrega 1 se mantiene intacto: **el LLM aparece únicamente en los dos extremos del flujo, nunca en el medio.** La búsqueda híbrida es determinista de punta a punta — el embedding es una función, el `where` es un filtro y el umbral es una comparación numérica. Ningún dato de esta entrega lo decide un modelo.
+
+### C.2 — El umbral de aceptación
+
+**Threshold definido: distancia coseno ≤ 0,35** (equivalente a similitud ≥ 0,65), en `vector_db.UMBRAL_DISTANCIA`.
+
+No está elegido a ojo. Medimos el top-1 de **24 consultas**: 14 que sí tienen respuesta en la base y 10 que no.
+
+| | Peor caso | |
+| :--- | ---: | :--- |
+| Consultas **dentro** del catálogo (14) | **0,3400** | la peor: *"puedo abonar escaneando con la billetera del celular?"* → DOC-007 |
+| Consultas **fuera** del catálogo (10) | **0,3631** | la mejor: *"hacen análisis de sangre y electrocardiogramas?"* → DOC-011 |
+| **Brecha** | **0,0231** | punto medio: 0,3516 → se adopta **0,35** |
+
+Las 14 consultas legítimas caen entre 0,2445 y 0,3400; las 10 fuera de catálogo, entre 0,3631 y 0,4285. La separación existe pero **es estrecha**, y conviene decirlo: con `gemini-embedding-001` el espacio está comprimido y no hay un abismo cómodo entre "responde" y "no responde". Eso tiene dos consecuencias prácticas. Primera, el umbral hay que **recalibrarlo si se cambia el modelo de embeddings**: 0,35 vale para este modelo y esta base, no es una constante universal. Segunda, en una base que crezca a cientos de documentos habría que revalidarlo con un lote de consultas más grande, y probablemente complementarlo con un re-ranker.
+
+Vale recordar de dónde salió esa brecha. Con la función de embedding de ChromaDB tal como viene —que vectoriza la consulta igual que el documento— la misma medición da **−0,0102**: la brecha se da vuelta y ningún umbral separa nada (ver B.1). Que el umbral de esta sección exista es consecuencia directa de vectorizar las consultas con `RETRIEVAL_QUERY`.
+
+**Qué responde el sistema cuando nada supera el umbral.** `buscar_farmacia()` devuelve `hay_respuesta: False` y la respuesta literal:
+
+> *"No tengo esa información en mi base de conocimiento. Te derivo con un empleado de la farmacia."*
+
+Esto es deliberado y es el punto de toda la entrega. El índice **siempre** devuelve un vecino más cercano: para *"¿hacen análisis de sangre?"* devuelve el convenio con Swiss Medical a 0,3695, porque es lo menos lejano que hay. Si el sistema pasara ese documento al LLM sin chequear el umbral, el modelo redactaría una respuesta plausible sobre análisis clínicos apoyándose en un texto que habla de otra cosa — que es exactamente la alucinación que documentamos en A.2 de la Entrega 1, solo que ahora con el agravante de tener una fuente citable. Forzar el resultado más cercano es alucinación con nota al pie. Decir "no tengo esa información" es la respuesta correcta, y en este dominio también la responsable: derivar a un humano no cuesta nada, inventar una política sanitaria sí.
+
+### C.3 — Cierre: dónde se conecta
+
+`buscar_farmacia()` devuelve un `dict` de Python con los documentos, sus distancias, el `where` aplicado y la bandera `hay_respuesta` — es **contexto recuperado, no una respuesta**. Lo que falta es el **orquestador RAG** (LangChain, Unidad 4): el componente que recibe el `texto_libre` del webhook, invoca al extractor de intención y parámetros que ya construimos en la Entrega 1 (`app.py` + `schemas.py`), traduce esos parámetros al `where` de esta búsqueda, resuelve en paralelo los datos exactos contra las tablas SQL (stock y precio, que nunca salen del vector store) y recién entonces arma el prompt final con el contexto recuperado para que el LLM redacte la respuesta al cliente. Es el eslabón que une las dos mitades del flujo técnico de B.6 de la Entrega 1: hoy tenemos el intérprete de la entrada (Entrega 1) y la memoria consultable (Entrega 2), pero nadie que los llame en orden, aplique el umbral y decida entre responder o derivar a un humano.
