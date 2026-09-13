@@ -365,3 +365,80 @@ El cambio impacta de inmediato en la búsqueda: en la corrida de B.4, la consult
 
 ---
 
+### B.5 — ETL y purga semántica
+
+**Script:** [`etl_purga.py`](etl_purga.py) · **Lote sucio:** [`ingesta_cruda.json`](ingesta_cruda.json)
+
+`base_conocimiento.json` se mantiene limpio: es la fuente de verdad desde la que se reconstruye toda la base. La suciedad se agregó a mano en un archivo aparte, `ingesta_cruda.json`, que simula un lote cargado por la sucursal Norte en su propia planilla. El ETL toma los dos, reporta todo lo que tocó y deja la colección de ChromaDB sincronizada: upsert de lo que sobrevive y `delete` por id de los duplicados.
+
+Lo que se agregó a mano:
+
+| Registro | Qué problema tiene |
+| :--- | :--- |
+| `DOC-101` | Casi-duplicado de DOC-002 (zona de reparto norte) con otra redacción y otra jerga |
+| `DOC-102` | Casi-duplicado de DOC-013 (psicotrópicos) en lenguaje de mostrador |
+| `DOC-103` | Casi-duplicado de DOC-007 (medios de pago), escrito en segunda persona |
+| `DOC-104` | **Clave mal nombrada**: `descripcion` en vez de `descripcion_semantica`, y `metadata` en vez de `metadatos` |
+| `DOC-105` | **Booleano como string** (`"vigente": "true"`) y `tags_regionales` como string con comas en vez de lista |
+| `DOC-010` | **Colisión de id**: reusa un id que la base ya tiene, con contenido completamente distinto (dermocosmética vs. PAMI) |
+
+#### El umbral de duplicado, justificado
+
+Antes de fijar el número medimos todos los pares de la base (20 canónicos + 6 entrantes):
+
+| Par | Distancia coseno | |
+| :--- | ---: | :--- |
+| DOC-007 ↔ DOC-103 | **0,0398** | casi-duplicado real |
+| DOC-013 ↔ DOC-102 | **0,0773** | casi-duplicado real |
+| DOC-002 ↔ DOC-101 | **0,1115** | casi-duplicado real |
+| **DOC-013 ↔ DOC-020** | **0,1248** | **par legítimo más cercano — NO debe fusionarse** |
+| DOC-009 ↔ DOC-011 | 0,1580 | par legítimo (dos convenios distintos) |
+
+El umbral tiene que entrar en la ventana `(0,1115 – 0,1248)`: **0,12**. El margen es finito a propósito y el par que lo aprieta es el más interesante de la base — DOC-013 (régimen de psicotrópicos **vigente**) y DOC-020 (el mismo régimen **derogado**) hablan del mismo tema con el mismo vocabulario y se diferencian solo por la vigencia. Cualquier umbral más laxo fusionaría la norma vigente con la derogada, que es exactamente el desastre que la Killer Query 2 pone a prueba.
+
+Por eso rige además una **regla de seguridad**: la purga solo puede eliminar registros que vienen del lote crudo. Un documento canónico nunca se borra automáticamente, por más cerca que caiga de otro.
+
+#### Salida real del ETL
+
+```
+$ python etl_purga.py
+
+============ ETL — Normalización de claves y tipos ============
+  base canónica :  20 registros
+  lote entrante :   6 registros
+
+  [CLAVE] DOC-104: 'descripcion' -> 'descripcion_semantica'
+  [CLAVE] DOC-104: 'metadata' -> 'metadatos'
+  [TIPO] DOC-105: 'vigente' venía como string 'true' -> bool True
+  [TIPO] DOC-105: 'tags_regionales' venía como string -> lista de 5 tags
+
+============ ETL — Colisión de IDs ============
+  [ID] DOC-010: el id ya existe en la base con OTRO contenido -> reasignado a DOC-021
+
+============ Purga semántica — distancia coseno <= 0.12 ============
+
+  ELIMINADO DOC-101  (distancia 0.1115 a DOC-002)
+    se conserva : DOC-002  "La sucursal Norte cubre el corredor de la zona norte del Gran Buenos Aires..."
+    se descarta : DOC-101  "Desde el local de Vicente López mandamos pedidos a toda la zona: Olivos..."
+
+  ELIMINADO DOC-102  (distancia 0.0773 a DOC-013)
+    se conserva : DOC-013  "Los psicotrópicos y estupefacientes de las listas reguladas —clonazepam..."
+    se descarta : DOC-102  "Las pastillas de la lista controlada, tipo clonazepam, alprazolam o..."
+
+  ELIMINADO DOC-103  (distancia 0.0398 a DOC-007)
+    se conserva : DOC-007  "Los medios de pago aceptados en el canal digital son transferencia..."
+    se descarta : DOC-103  "Podés abonar por transferencia al CBU o al alias, con tarjeta de..."
+
+============ Resultado ============
+  20 canónicos + 6 entrantes - 3 duplicados = 23 documentos
+  colección sincronizada: 23 registros
+```
+
+**Qué se eliminó:** DOC-101, DOC-102 y DOC-103 — los tres casi-duplicados. Sobrevivieron DOC-104 (la campaña de vacunación), DOC-105 (puericultura) y DOC-021 (dermocosmética, ex DOC-010): son documentos nuevos y legítimos, solo estaban mal cargados. Y sobrevivieron **DOC-013 y DOC-020 por separado**, que es la prueba de que el umbral está bien puesto.
+
+#### Por qué un `SELECT DISTINCT` no habría encontrado nada de esto
+
+`DISTINCT` compara bytes. Los tres pares purgados no comparten ni el `id`, ni el texto, ni una sola oración completa: dicen lo mismo con otras palabras — *"empresa de mensajería"* contra *"servicio de cadetes contratado"*, *"receta oficial archivada"* contra *"la receta que queda en la farmacia"*, *"tarjetas procesadas por la pasarela"* contra *"tarjeta de crédito o débito de cualquier banco a través de la pasarela"*. Para SQL son seis filas perfectamente distintas, y el `DISTINCT` las deja pasar todas. Solo el espacio vectorial las pone a 0,04–0,11 de distancia y las delata como el mismo documento escrito dos veces. Al revés también falla: `DISTINCT` **sí** habría colapsado dos filas idénticas byte a byte que fueran documentos legítimamente repetidos, y jamás habría detectado la colisión de `DOC-010`, donde el id coincide pero el contenido es otro.
+
+---
+
