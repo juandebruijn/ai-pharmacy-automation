@@ -365,6 +365,64 @@ El cambio impacta de inmediato en la búsqueda: en la corrida de B.4, la consult
 
 ---
 
+### B.4 — CLI de búsqueda híbrida
+
+**Función:** `buscar_farmacia()` en [`vector_db.py`](vector_db.py)
+
+```python
+def buscar_farmacia(query_semantica: str, filtro_categoria: str | None = None,
+                    solo_vigentes: bool = True, n_resultados: int = 3) -> dict:
+```
+
+Es la firma que pide el enunciado —`buscar_<dominio>(query_semantica, filtro_X, solo_activos, n_resultados)`— con `filtro_X` = `categoria` y `solo_activos` = `solo_vigentes`, que es el nombre del booleano de estado en nuestro esquema.
+
+El `where` se arma con operadores nativos y viaja **dentro** de la query:
+
+```python
+condiciones = []
+if solo_vigentes:
+    condiciones.append({"vigente": {"$eq": True}})
+if filtro_categoria:
+    condiciones.append({"categoria": {"$eq": filtro_categoria}})
+
+# ChromaDB rechaza un $and de un solo elemento.
+if len(condiciones) > 1:
+    where = {"$and": condiciones}
+elif condiciones:
+    where = condiciones[0]
+else:
+    where = None
+
+crudo = obtener_coleccion().query(
+    query_texts=[query_semantica],
+    n_results=n_resultados,
+    where=where,                      # el filtro va ACÁ, no en un if de Python
+    include=["documents", "metadatas", "distances"],
+)
+```
+
+**Sin post-filtering manual.** No hay ningún `if` de Python descartando resultados después de la query. Y no es una formalidad: si filtráramos a posteriori, el motor gastaría el top-K calculando similitud contra documentos que ya sabíamos que iban a descartarse y, peor, podríamos terminar con **menos de `n_resultados`** sin que el llamador se entere. El único `if` posterior es el del **umbral**, que no filtra por atributo sino que decide si hay respuesta o no (C.2) — y marca cada resultado en lugar de esconderlo.
+
+Ejemplo de corrida:
+
+```
+$ python vector_db.py --buscar "me lo acercan hasta Olivos en el dia?" --categoria logistica
+
+Consulta: "me lo acercan hasta Olivos en el dia?"
+where:    {"$and": [{"vigente": {"$eq": true}}, {"categoria": {"$eq": "logistica"}}]}
+umbral:   distancia <= 0.35
+  1. DOC-002  distancia=0.2705  [ACEPTADO]
+     categoria=logistica  vigente=True
+  2. DOC-004  distancia=0.3116  [ACEPTADO]
+     categoria=logistica  vigente=True
+  3. DOC-003  distancia=0.3150  [ACEPTADO]
+     categoria=logistica  vigente=True
+```
+
+La función devuelve un `dict` con los resultados, el `where` efectivamente aplicado y una bandera `hay_respuesta`. Ese dict es el contrato con el orquestador RAG de la Unidad 4 (ver C.3).
+
+---
+
 ### B.5 — ETL y purga semántica
 
 **Script:** [`etl_purga.py`](etl_purga.py) · **Lote sucio:** [`ingesta_cruda.json`](ingesta_cruda.json)
