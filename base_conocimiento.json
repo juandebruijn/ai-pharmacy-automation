@@ -1,0 +1,222 @@
+[
+  {
+    "id": "DOC-001",
+    "descripcion_semantica": "La sucursal Centro despacha pedidos a domicilio dentro del microcentro porteño y los barrios linderos: San Nicolás, Monserrat, Retiro, Recoleta, Balvanera y Congreso. El reparto lo hace un cadete propio en moto, con dos salidas diarias, una al mediodía y otra a media tarde. El envío es sin cargo cuando la compra supera el monto mínimo vigente; por debajo de ese monto se cobra una tarifa fija de mensajería que el sistema informa antes de confirmar. No se despacha fuera de la General Paz desde esta sucursal: si el cliente pide una entrega en el conurbano, la operación se deriva a la sucursal que cubre esa zona. Los pedidos que incluyen medicamentos bajo receta solo salen a reparto una vez que el farmacéutico validó la imagen de la receta cargada en el sistema.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "SUC-001",
+      "vigente": true,
+      "tags_regionales": ["delivery", "cadete", "microcentro", "envío a domicilio", "mandar a casa"]
+    }
+  },
+  {
+    "id": "DOC-002",
+    "descripcion_semantica": "La sucursal Norte cubre el corredor de la zona norte del Gran Buenos Aires sobre el eje de la avenida Maipú y el acceso Panamericana: Vicente López, Olivos, La Lucila, Martínez, Acassuso y San Isidro, incluyendo la franja del bajo que va desde las vías del tren Mitre hasta el río. El reparto se terceriza con una empresa de mensajería que hace tres rondas por día. Las entregas en Tigre, Nordelta, Benavídez y Escobar quedan fuera del radio y se rechazan en el momento de la consulta, sin tomar el pedido. Cuando el cliente vive en el límite de la zona, el sistema pide el código postal antes de confirmar la entrega para no comprometer un plazo que no se puede cumplir.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "SUC-002",
+      "vigente": true,
+      "tags_regionales": ["zona norte", "el bajo", "Panamericana", "mensajería", "acercar a casa"]
+    }
+  },
+  {
+    "id": "DOC-003",
+    "descripcion_semantica": "La sucursal Oeste reparte en el primer cordón del oeste bonaerense: Ramos Mejía, Haedo, Morón, Villa Sarmiento, Ciudadela y Villa Luro. El servicio funciona de lunes a viernes con una única salida diaria a las quince horas y no hay reparto los sábados, domingos ni feriados. Los pedidos que entran después del horario de corte se despachan al día hábil siguiente. Esta sucursal es además el punto de entrega de los productos de cadena de frío para toda la red del oeste, porque es la única que tiene heladera de transporte homologada. Las entregas a Merlo, Moreno e Ituzaingó no están habilitadas.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "SUC-003",
+      "vigente": true,
+      "tags_regionales": ["zona oeste", "conurbano", "reparto", "día hábil", "envío"]
+    }
+  },
+  {
+    "id": "DOC-004",
+    "descripcion_semantica": "La ventana de corte del reparto define si un pedido llega en el día o pasa a la jornada siguiente. Para que una compra salga con la última ronda de reparto tiene que estar pagada y con la receta validada antes de las dieciséis horas de lunes a viernes y antes de las doce del mediodía los sábados. Un pedido confirmado a las cuatro y cuarto de la tarde no entra en el reparto de ese día, aunque el cliente insista o marque el pedido como urgente: el sistema nunca promete una entrega para hoy fuera de esa ventana, porque una promesa incumplida en un medicamento genera más daño que una demora anunciada. Los domingos y feriados no hay reparto en ninguna sucursal de la red.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["horario de corte", "para hoy", "urgente", "en el día", "llega hoy"]
+    }
+  },
+  {
+    "id": "DOC-005",
+    "descripcion_semantica": "El retiro en sucursal permite al cliente reservar el producto por el canal de WhatsApp y pasarlo a buscar por el mostrador sin hacer cola. La reserva se mantiene durante cuarenta y ocho horas corridas desde la confirmación; pasado ese plazo el stock se libera automáticamente y vuelve al catálogo disponible. Para retirar hay que presentar el número de pedido y, si el producto es bajo receta, la receta original en papel o la receta electrónica con su código de validación. El retiro no tiene costo y está disponible en las tres sucursales durante todo el horario de atención, incluido el turno de la noche en la sucursal Centro.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["retiro en sucursal", "paso a buscarlo", "reserva", "lo retiro yo", "mostrador"]
+    }
+  },
+  {
+    "id": "DOC-006",
+    "descripcion_semantica": "Los productos que exigen conservación entre dos y ocho grados —insulinas, plumas de aplicación, vacunas, algunos biológicos y colirios refrigerados— viajan en conservadora con gel refrigerante y registro de temperatura, y solo se despachan en la primera ronda de reparto de la mañana para minimizar el tiempo fuera de la heladera. Este tipo de envío no se terceriza con mensajería común y no se entrega a un tercero: la persona que recibe tiene que ser el titular del pedido o alguien autorizado en el momento de la compra. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo, porque un medicamento que rompió la cadena de frío no se vende bajo ninguna circunstancia.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["cadena de frío", "heladera", "insulina", "vacuna", "conservadora", "refrigerado"]
+    }
+  },
+  {
+    "id": "DOC-007",
+    "descripcion_semantica": "Los medios de pago aceptados en el canal digital son transferencia bancaria por CBU o alias, tarjetas de crédito y débito de todas las marcas procesadas por la pasarela, billeteras virtuales con código QR y efectivo únicamente contra entrega en la puerta o en el mostrador. No se aceptan cheques, ni pagos en moneda extranjera, ni pagos fraccionados entre dos medios distintos en la misma operación. El pedido se considera confirmado recién cuando la acreditación del pago impacta en el sistema: una captura de pantalla de la transferencia no alcanza para liberar el despacho, porque la reserva de stock se hace contra la acreditación real y no contra el comprobante enviado por el cliente.",
+    "metadatos": {
+      "categoria": "pagos",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["forma de pago", "transferencia", "QR", "billetera virtual", "contra entrega", "alias"]
+    }
+  },
+  {
+    "id": "DOC-008",
+    "descripcion_semantica": "Los descuentos bancarios y las promociones por día de la semana se aplican sobre el precio de lista y nunca se acumulan con el descuento de la obra social: el sistema toma automáticamente el beneficio que más conviene al cliente y descarta el otro. Las promociones bancarias no alcanzan a los medicamentos bajo receta archivada ni a los productos de venta regulada, y quedan limitadas a perfumería, dermocosmética, cuidado personal y accesorios. El tope de reintegro por operación lo fija cada banco y el sistema lo informa antes de cerrar la compra, porque un descuento anunciado que después no impacta en el resumen es el reclamo más frecuente del mostrador.",
+    "metadatos": {
+      "categoria": "pagos",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["promo bancaria", "descuento", "tope de reintegro", "día de descuento", "2x1"]
+    }
+  },
+  {
+    "id": "DOC-009",
+    "descripcion_semantica": "El convenio con OSDE cubre a los afiliados de todos los planes con un porcentaje de descuento que varía según el tipo de medicamento: los de uso ambulatorio tienen la cobertura general del plan, mientras que los tratamientos crónicos declarados y los medicamentos del programa de enfermedades prolongadas llegan a una cobertura ampliada. Para liquidar el descuento hace falta la credencial digital o el número de afiliado y una receta vigente a nombre del titular. La validación se hace en línea contra el sistema de la obra social en el momento de la venta: si el afiliado figura con la cuota impaga o el plan dado de baja, la cobertura se rechaza y la venta se cierra como particular, a precio de lista.",
+    "metadatos": {
+      "categoria": "cobertura",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["OSDE", "credencial", "número de afiliado", "prepaga", "obra social", "cobertura"]
+    }
+  },
+  {
+    "id": "DOC-010",
+    "descripcion_semantica": "Los jubilados y pensionados afiliados al PAMI acceden al vademécum del instituto con cobertura preferencial y, en el caso de los tratamientos crónicos de presión arterial, diabetes y colesterol incluidos en el listado de medicamentos gratuitos, el afiliado no abona nada en el mostrador. La receta tiene que estar emitida por un médico de cartilla del instituto y llevar el sello con la matrícula; la credencial del afiliado es obligatoria y no se acepta el trámite con el documento solo. La cantidad de envases por receta está topeada por el propio instituto y el sistema rechaza la carga que supere ese tope, aunque el cliente lo pida y aunque haya stock disponible.",
+    "metadatos": {
+      "categoria": "cobertura",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["PAMI", "jubilados", "libreta", "remedios gratis", "vademécum", "crónicos"]
+    }
+  },
+  {
+    "id": "DOC-011",
+    "descripcion_semantica": "Los convenios con Swiss Medical, OMINT y Medifé funcionan bajo el mismo circuito de validación en línea y comparten la misma exigencia documental: credencial vigente, receta con diagnóstico y firma del profesional, y coincidencia exacta entre el titular de la receta y el afiliado. Las tres prepagas cubren los medicamentos de venta bajo receta según el plan contratado y dejan fuera los productos de perfumería, suplementos dietarios y accesorios, que siempre se cobran a precio de lista. Los planes corporativos pueden tener un vademécum restringido distinto del plan individual, por lo que la cobertura se consulta siempre contra el padrón y nunca se estima a partir del nombre de la prepaga.",
+    "metadatos": {
+      "categoria": "cobertura",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["Swiss Medical", "OMINT", "Medifé", "plan corporativo", "prepaga", "padrón"]
+    }
+  },
+  {
+    "id": "DOC-012",
+    "descripcion_semantica": "El convenio con IOMA quedó suspendido por falta de acreditación de las liquidaciones y actualmente la obra social no opera en ninguna sucursal de la red. Mientras dure la suspensión, el afiliado de IOMA que se acerca al mostrador o escribe por WhatsApp compra como particular, a precio de lista y sin ningún tipo de descuento, y el sistema no debe ofrecerle cobertura ni estimarle un porcentaje. La consulta se deriva a un empleado humano para que explique la situación y le informe que puede pedir el reintegro directamente en la delegación de la obra social presentando la factura. Este documento se mantiene en la base justamente para bloquear la respuesta equivocada, no para habilitarla.",
+    "metadatos": {
+      "categoria": "cobertura",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": false,
+      "tags_regionales": ["IOMA", "convenio suspendido", "sin cobertura", "reintegro", "obra social"]
+    }
+  },
+  {
+    "id": "DOC-013",
+    "descripcion_semantica": "Los psicotrópicos y estupefacientes de las listas reguladas —clonazepam, alprazolam, zolpidem, metilfenidato y derivados— solo se dispensan contra receta oficial archivada por duplicado o triplicado según la lista, emitida en el formulario oficial, con el troquel adherido, la firma y el sello del profesional, y los datos completos del paciente. La receta queda archivada en la farmacia por el plazo que fija la normativa y no se devuelve al cliente bajo ningún concepto. Este tipo de producto no se vende por WhatsApp ni se despacha a domicilio: la dispensa es presencial y exige que el farmacéutico verifique la receta original en papel contra el documento de identidad de quien retira.",
+    "metadatos": {
+      "categoria": "normativa",
+      "intencion_relacionada": "validar_receta",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["psicotrópicos", "receta archivada", "clonazepam", "troquel", "duplicado", "pastillas para dormir"]
+    }
+  },
+  {
+    "id": "DOC-014",
+    "descripcion_semantica": "La receta electrónica se acepta en todas las sucursales siempre que traiga el código de validación o el QR emitido por la plataforma habilitada, y se verifica en línea contra el repositorio del emisor antes de dispensar. Una foto o una captura de pantalla de una receta en papel no es una receta electrónica y no habilita la dispensa por sí sola: sirve para que el farmacéutico haga la prevalidación y arme el pedido, pero el original se exige igual en el momento de la entrega. Cada receta electrónica se marca como consumida al dispensarla, lo que impide que el mismo código se use dos veces en dos sucursales distintas de la red.",
+    "metadatos": {
+      "categoria": "normativa",
+      "intencion_relacionada": "validar_receta",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["receta electrónica", "QR", "código de validación", "mando la foto", "receta digital"]
+    }
+  },
+  {
+    "id": "DOC-015",
+    "descripcion_semantica": "Los medicamentos de venta libre —analgésicos y antifebriles de uso común como el paracetamol, el ibuprofeno y la aspirina en sus presentaciones de dosis estándar, además de antiácidos, descongestivos nasales y antisépticos de uso externo— se venden sin receta y se despachan a domicilio sin ninguna validación previa. La venta libre tiene un tope de unidades por operación para evitar el desvío al circuito mayorista y el acopio: un pedido que supera ese tope se frena y se deriva a un humano. El sistema nunca recomienda un medicamento para un síntoma descrito por el cliente, aunque sea de venta libre, porque la indicación terapéutica es un acto profesional y no una consulta de catálogo.",
+    "metadatos": {
+      "categoria": "normativa",
+      "intencion_relacionada": "consulta_stock",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["venta libre", "sin receta", "analgésico", "para el dolor", "de venta directa"]
+    }
+  },
+  {
+    "id": "DOC-016",
+    "descripcion_semantica": "Los antibióticos de uso sistémico exigen receta médica vigente sin excepción, incluso cuando el cliente presenta un envase anterior, una caja vacía o el nombre del medicamento que le indicaron la vez pasada. La receta tiene que ser reciente, tener la firma y el sello del profesional con su matrícula, y corresponder al paciente que retira. No se fracciona el envase ni se vende por unidad: el tratamiento se dispensa completo tal como viene el blíster, porque un tratamiento antibiótico incompleto es exactamente lo que genera resistencia bacteriana. Ante la insistencia del cliente sin receta, la consulta se deriva al farmacéutico y nunca se resuelve automáticamente.",
+    "metadatos": {
+      "categoria": "normativa",
+      "intencion_relacionada": "validar_receta",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["antibiótico", "receta obligatoria", "amoxicilina", "no se fracciona", "tratamiento completo"]
+    }
+  },
+  {
+    "id": "DOC-017",
+    "descripcion_semantica": "El horario de atención general de la red es de lunes a viernes de ocho a veintiuna, los sábados de nueve a dieciocho y los domingos de diez a trece, con la excepción de la sucursal Centro, que sostiene el turno farmacéutico nocturno y atiende las veinticuatro horas a través de la ventanilla de urgencias cuando le toca el turno rotativo del barrio. Durante el turno nocturno solo se dispensa contra receta o urgencia declarada y no hay reparto a domicilio de ningún tipo. El calendario del turno rotativo lo publica el colegio de farmacéuticos y cambia todas las semanas, por lo que el sistema nunca afirma que una sucursal está abierta sin verificar la fecha contra ese calendario.",
+    "metadatos": {
+      "categoria": "atencion",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["horario", "turno nocturno", "farmacia de turno", "24 horas", "hasta qué hora abren"]
+    }
+  },
+  {
+    "id": "DOC-018",
+    "descripcion_semantica": "Los medicamentos no admiten cambio ni devolución una vez que salieron del mostrador, porque la trazabilidad y la conservación fuera de la farmacia no se pueden garantizar. La única excepción es el producto entregado por error del sistema o con el envase dañado, el vencimiento cumplido o la cadena de frío rota, casos en los que se repone sin cargo con el ticket y dentro de las setenta y dos horas. Los productos de perfumería y dermocosmética sin abrir sí se cambian dentro de los quince días con el comprobante. Ningún reclamo de devolución se resuelve por el canal automático: siempre se deriva a un responsable de sucursal.",
+    "metadatos": {
+      "categoria": "atencion",
+      "intencion_relacionada": "fuera_de_alcance",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["devolución", "cambio", "reclamo", "me lo cambian", "vencido", "ticket"]
+    }
+  },
+  {
+    "id": "DOC-019",
+    "descripcion_semantica": "Cuando un producto figura sin stock en la sucursal consultada, el sistema ofrece tres caminos antes de dar la consulta por perdida: verificar la disponibilidad en las otras sucursales de la red y proponer el retiro ahí, encargarlo a la droguería con un plazo estimado de cuarenta y ocho a setenta y dos horas hábiles, o proponer el genérico equivalente de la misma droga y la misma concentración para que el cliente decida. El encargo a droguería se registra como pedido en estado borrador y no se cobra hasta que la mercadería entra efectivamente al depósito. El sistema nunca sustituye el medicamento por iniciativa propia: propone la alternativa y espera la confirmación explícita del cliente.",
+    "metadatos": {
+      "categoria": "atencion",
+      "intencion_relacionada": "crear_pedido",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["faltante", "sin stock", "encargar", "droguería", "genérico", "me lo consiguen"]
+    }
+  },
+  {
+    "id": "DOC-020",
+    "descripcion_semantica": "Régimen anterior de dispensa de psicotrópicos, derogado y fuera de vigencia. Bajo este régimen alcanzaba con una receta manuscrita común en papel membretado del consultorio, sin formulario oficial y sin troquel, y el cliente se llevaba la receta después de que el farmacéutico la sellara. También se permitía despachar clonazepam y alprazolam a domicilio con el remito firmado por quien recibía el pedido. Este documento se conserva en la base solo como antecedente histórico para auditoría: cualquier respuesta que se apoye en él estaría informando una normativa que ya no rige y habilitando una dispensa que hoy es una infracción sanitaria.",
+    "metadatos": {
+      "categoria": "normativa",
+      "intencion_relacionada": "validar_receta",
+      "sucursal": "TODAS",
+      "vigente": false,
+      "tags_regionales": ["régimen derogado", "receta manuscrita", "clonazepam", "histórico", "antecedente"]
+    }
+  }
+]
