@@ -24,3 +24,77 @@ Todos los números de esta tabla están medidos sobre la base real de esta entre
 
 ---
 
+### A.2 — Similitud coseno a mano
+
+#### Los dos ejes
+
+Reducimos el dominio a los dos ejes que efectivamente separan las consultas del canal — y no son inventados para el ejercicio: son las dos intenciones más frecuentes de la **Matriz de Mapeo de Intenciones** (B.3 de la Entrega 1).
+
+* **Eje X — carga logística:** cuánto habla el texto de entrega, zona, plazo, retiro. (Intención `consulta_envio`.)
+* **Eje Y — carga comercial:** cuánto habla de precio, descuento, obra social, medio de pago. (Intención `consulta_precio_cobertura`.)
+
+| Vector | Qué representa | Coordenadas (logística, comercial) |
+| :--- | :--- | :---: |
+| `D1` | DOC-002 — Envío a domicilio zona norte | `(9, 1)` |
+| `D2` | DOC-009 — Convenio OSDE, cobertura y descuento | `(1, 9)` |
+| `D3` | DOC-005 — Retiro en sucursal abonando con promo bancaria | `(6, 6)` |
+| `Q` | *"¿me lo mandan hoy y cuánto me sale con OSDE?"* | `(7, 5)` |
+
+#### El cálculo en tres pasos
+
+$$\text{Similitud} = \frac{A \cdot B}{\lVert A \rVert \times \lVert B \rVert}$$
+
+**Q vs. D1 (envío)**
+
+1. Producto punto: `(7 × 9) + (5 × 1)` = `63 + 5` = **68**
+2. Normas: `‖Q‖ = √(7² + 5²) = √74 = 8,6023` · `‖D1‖ = √(9² + 1²) = √82 = 9,0554`
+3. División: `68 / (8,6023 × 9,0554)` = `68 / 77,8979` = **0,8729**
+
+**Q vs. D2 (cobertura)**
+
+1. Producto punto: `(7 × 1) + (5 × 9)` = `7 + 45` = **52**
+2. Normas: `‖Q‖ = 8,6023` · `‖D2‖ = √82 = 9,0554`
+3. División: `52 / (8,6023 × 9,0554)` = `52 / 77,8979` = **0,6675**
+
+**Q vs. D3 (mixto)**
+
+1. Producto punto: `(7 × 6) + (5 × 6)` = `42 + 30` = **72**
+2. Normas: `‖Q‖ = 8,6023` · `‖D3‖ = √(6² + 6²) = √72 = 8,4853`
+3. División: `72 / (8,6023 × 8,4853)` = `72 / 72,9936` = **0,9864**
+
+#### Validación con NumPy
+
+```python
+import numpy as np
+
+def similitud_coseno(a, b):
+    return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
+
+Q  = np.array([7.0, 5.0])   # "¿me lo mandan hoy y cuánto me sale con OSDE?"
+D1 = np.array([9.0, 1.0])   # DOC-002 · envío zona norte
+D2 = np.array([1.0, 9.0])   # DOC-009 · convenio OSDE
+D3 = np.array([6.0, 6.0])   # DOC-005 · retiro en sucursal con promo bancaria
+
+for nombre, D in [("DOC-002", D1), ("DOC-009", D2), ("DOC-005", D3)]:
+    print(nombre, round(float(similitud_coseno(Q, D)), 4))
+```
+
+Salida:
+
+```
+DOC-002 0.8729
+DOC-009 0.6675
+DOC-005 0.9864
+```
+
+Los tres valores coinciden con las cuentas manuales de arriba hasta el último decimal.
+El ranking queda: **DOC-005 (0,9864) > DOC-002 (0,8729) > DOC-009 (0,6675)**.
+
+Las tres cuentas manuales coinciden con NumPy hasta el último decimal. Lo interesante del resultado es cuál gana: la consulta es **mixta** (pregunta por entrega *y* por cobertura) y el documento que también mezcla las dos cargas le queda más cerca que cualquiera de los dos especialistas. El coseno mide **orientación, no magnitud**: `D3 = (6,6)` y un hipotético `(60,60)` darían idéntica similitud, que es la propiedad que hace que un documento largo no gane solo por ser largo.
+
+#### Reflexión sobre el umbral de aceptación
+
+Un ranking siempre devuelve un primero, incluso cuando ninguno sirve: el vecino más cercano existe aunque la consulta sea de otro planeta. Por eso el umbral no es un detalle de tuning, es **la única defensa contra la alucinación por proximidad**. En este ejercicio 2D un corte razonable estaría cerca de 0,85 de similitud (D2, con 0,6675, claramente no responde la consulta), pero el número que vale es el que medimos sobre embeddings reales: **distancia coseno ≤ 0,35**, calibrado en C.2 con 24 consultas. Si nada lo supera, el sistema **no** devuelve el más cercano: responde *"no tengo esa información"* y deriva a un humano.
+
+---
+
