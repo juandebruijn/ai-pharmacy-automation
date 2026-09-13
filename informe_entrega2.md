@@ -144,3 +144,120 @@ Y lo que deliberadamente **quedó dentro del texto**, no como metadato: los hora
 
 ---
 
+### A.4 — Índice FAISS
+
+**Script:** [`pipeline_vectorial.py`](pipeline_vectorial.py)
+
+| Requisito del enunciado | Cómo se cumple |
+| :--- | :--- |
+| Credenciales desde `.env` | `load_dotenv()` y `os.environ["GEMINI_API_KEY"]`. No hay ninguna clave en el código ni en el historial de git. |
+| Embeddings de `descripcion_semantica` | `gemini-embedding-001` a 768 dimensiones. La Entrega 1 ya usaba Gemini, así que no suma una credencial nueva. Las descripciones se vectorizan con `task_type="RETRIEVAL_DOCUMENT"` y las consultas con `"RETRIEVAL_QUERY"`: un documento largo y una pregunta corta no son el mismo tipo de texto, y en B.1 se muestra cuánto importa esa distinción. |
+| `IndexFlatL2` o `IndexFlatIP` normalizado | **`IndexFlatIP` con vectores normalizados a norma 1.** Con ‖v‖ = 1 el producto interno *es* la similitud coseno, así que el ranking de FAISS coincide exactamente con el de ChromaDB (`hnsw:space="cosine"`) y las dos partes del TP son comparables número a número. |
+| `write_index()` / `read_index()` | `persistir()` y `recargar()`. Además del `.index` se guarda `farmacia_ids.json` con el mapeo fila → `DOC-XXX`: FAISS almacena vectores, no identificadores, y sin ese mapeo el índice devuelve "fila 7" y nadie sabe qué documento es. |
+| Búsqueda top-K sobre 3 consultas | Ver abajo. |
+
+> **Nota de portabilidad.** `write_index()` y `read_index()` son C++ y abren el archivo con `fopen()`, que en Windows interpreta la ruta con la codepage ANSI. Si el repositorio está clonado en una carpeta con acentos o símbolos (el caso de esta máquina: *"5° Cuatrimestre"*), la ruta absoluta se corrompe al cruzar a C++ y FAISS falla con `could not open ... No such file or directory` aunque el directorio exista. El script entra al directorio del índice y le pasa un nombre relativo y ASCII, así que funciona en cualquier máquina y con cualquier ruta.
+
+#### Las tres consultas de prueba
+
+Están escritas como las escribiría un cliente por WhatsApp: **con jerga y sin las palabras exactas del documento** que tienen que recuperar. Si funcionaran solo con las palabras textuales, un `LIKE` alcanzaría.
+
+```
+[1] "che, me lo pueden acercar en moto hasta el bajo de Vicente López?"
+    1. DOC-002  similitud=0.7405  distancia=0.2595  (logistica)   <- sucursal Norte
+    2. DOC-001  similitud=0.7044  distancia=0.2956  (logistica)
+    3. DOC-003  similitud=0.6560  distancia=0.3440  (logistica)
+
+[2] "soy jubilado, los remedios de la presión los tengo que pagar?"
+    1. DOC-010  similitud=0.7594  distancia=0.2406  (cobertura)   <- PAMI
+    2. DOC-011  similitud=0.6602  distancia=0.3398  (cobertura)
+    3. DOC-009  similitud=0.6527  distancia=0.3473  (cobertura)
+
+[3] "puedo abonar escaneando con la billetera del celular?"
+    1. DOC-007  similitud=0.6600  distancia=0.3400  (pagos)       <- medios de pago
+    2. DOC-005  similitud=0.5889  distancia=0.4111  (logistica)
+    3. DOC-012  similitud=0.5831  distancia=0.4169  (cobertura)   <- dado de baja
+```
+
+Las tres aciertan el documento correcto en el puesto 1. Vale la pena mirar el ruido: la consulta 1 trae las otras dos sucursales en los puestos 2 y 3 — semánticamente son casi lo mismo ("zona de reparto") y solo un metadato puede separarlas. Y la consulta 3 mete en el top-3 a **DOC-012, que está dado de baja**: FAISS no tiene forma de filtrarlo. Los dos problemas son el argumento de la Parte B.
+
+---
+
+### A.5 — Prueba destructiva: volatilidad de la RAM
+
+Log real de la corrida (`pipeline_vectorial.py` con los flags `--borrar`, `--volatil` y sin flags).
+
+#### Paso 1 — construir **sin** `write_index()`
+
+```
+$ python pipeline_vectorial.py --borrar
+[A.5] indice_faiss/ borrado. El índice ya no existe en disco.
+
+$ python pipeline_vectorial.py --volatil
+[build] --volatil: se construye en RAM y NO se persiste.
+  Vectorizando 20 descripciones con gemini-embedding-001...
+  Índice construido: 20 vectores de 768 dimensiones.
+  [A.5] write_index() OMITIDO a propósito: cuando este proceso termine,
+        el índice muere con la RAM y hay que volver a pagar los tokens.
+real    0m5.054s
+```
+
+#### Paso 2 — reiniciar el entorno (proceso nuevo)
+
+```
+$ ls indice_faiss/
+   (indice_faiss/ no existe: el indice se perdio)
+```
+
+#### Paso 3 — el índice hay que **regenerar**, y se paga de nuevo
+
+```
+$ python pipeline_vectorial.py --volatil
+[build] --volatil: se construye en RAM y NO se persiste.
+  Vectorizando 20 descripciones con gemini-embedding-001...
+  Índice construido: 20 vectores de 768 dimensiones.
+real    0m4.351s
+```
+
+Segunda llamada a la API, segundo pago de los mismos 3.095 tokens, para obtener **exactamente los mismos 20 vectores**.
+
+#### Paso 4 — ahora **con** `write_index()`
+
+```
+$ python pipeline_vectorial.py
+[build] no hay índice en disco.
+  Vectorizando 20 descripciones con gemini-embedding-001...
+  Índice construido: 20 vectores de 768 dimensiones.
+  Persistido en indice_faiss\farmacia.index (60.0 KB).
+real    0m4.381s
+```
+
+#### Paso 5 — proceso nuevo: se recarga de disco, **sin consumir tokens**
+
+```
+$ python pipeline_vectorial.py
+[read_index] Índice recargado desde disco: 20 vectores.
+             0 llamadas a la API, 0 tokens consumidos.
+
+[1] "che, me lo pueden acercar en moto hasta el bajo de Vicente López?"
+    1. DOC-002  similitud=0.7405  distancia=0.2595  (logistica)
+    2. DOC-001  similitud=0.7044  distancia=0.2956  (logistica)
+    3. DOC-003  similitud=0.6560  distancia=0.3440  (logistica)
+...
+real    0m3.385s
+```
+
+```
+$ ls -la indice_faiss/
+-rw-r--r-- 61485 farmacia.index
+-rw-r--r--   414 farmacia_ids.json
+```
+
+**La evidencia:** los scores del paso 5 (`0.7405 / 0.7044 / 0.6560`) son **idénticos** a los del paso 1, dígito por dígito, pero sin una sola llamada a la API. El índice recargado no es una aproximación del original: es el original. Y el tiempo baja de ~4,4 s a ~3,4 s — el segundo entero que se ahorra es la llamada de red que no se hizo.
+
+#### Reflexión
+
+En producción, si el servidor se reinicia sin persistencia, el sistema queda ciego hasta terminar de re-vectorizar la base entera: con 20 documentos son 2 segundos, pero con el vademécum completo de la farmacia son minutos de cold start en los que el agente no puede responder nada — y se paga la factura de embeddings de nuevo en cada deploy, cada crash y cada escalado automático. Con dos servidores el problema cambia de forma: cada uno construye su índice por su cuenta y quedan **dos bases divergentes** respondiendo distinto a la misma pregunta según a qué instancia caiga el cliente, y un documento actualizado en uno no existe en el otro. La persistencia en disco no es una optimización de costo: es lo que convierte el índice en una **fuente de verdad única y compartida**, que es justamente lo que el `PersistentClient` de ChromaDB formaliza en B.1.
+
+---
+
