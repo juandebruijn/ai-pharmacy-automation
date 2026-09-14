@@ -1,6 +1,6 @@
 # Entrega 2 — Del prompt saturado a la Base de Conocimiento vectorial
 
-**Dominio:** atención automatizada de una red de farmacias por WhatsApp (el mismo de la Entrega 1).
+**Dominio:** Atención automatizada de una red de farmacias por WhatsApp (el mismo de la Entrega 1).
 
 Esta entrega construye la capa que el sistema de la Entrega 1 declaraba pero no tenía. El PEAS (A.3 de la Entrega 1) ya listaba, en la columna **Base de Conocimiento**, una *"base vectorial (RAG) con políticas de entrega a domicilio, zonas de cobertura, medios de pago y requisitos normativos para medicamentos bajo receta"*. Eso es exactamente lo que se implementa acá: **20 documentos de política comercial, logística y normativa**, vectorizados, persistidos y consultables con filtro duro.
 
@@ -12,15 +12,15 @@ Esta entrega construye la capa que el sistema de la Entrega 1 declaraba pero no 
 
 ### A.1 — Autopsia del contexto estático
 
-Todos los números de esta tabla están medidos sobre la base real de esta entrega (`base_conocimiento.json`, 20 documentos) con el tokenizador del modelo que usa el pipeline de la Entrega 1.
+Todos los números de esta tabla están medidos sobre la base real de esta entrega (base_conocimiento.json, 20 documentos) utilizando el tokenizador estándar de los modelos evaluados en la Entrega 1 (Gemini y GPT-4o)
 
 | Problema | Aplicado a nuestro dominio |
 | :--- | :--- |
-| **Desangre de tokens** | Los 20 documentos concatenados son **3.095 tokens**; una consulta típica del canal (*"Hola! Tienen Ibupirac 600 x20? cuanto sale con OSDE y me lo mandan hoy?"*) son **29 tokens**. Meter la base entera en el System Prompt hace que el **99,1 % del input sea contexto que el cliente no pidió**: se pagan 107 tokens de política por cada token de pregunta. Con las 40–60 consultas diarias por sucursal que documentamos en B.1 de la Entrega 1 y tres sucursales, son ~150 consultas/día × 3.095 tokens = **464.250 tokens diarios** quemados en repetir las mismas políticas. Recuperando solo el top-3 (≈465 tokens) el mismo volumen baja a ~70.000: **85 % menos**. Y 20 documentos es el piso: la base real de una farmacia suma el vademécum, los convenios de cada plan de cada prepaga y la normativa ANMAT — ahí el prompt no se encarece, directamente no entra en la ventana de contexto. |
-| **Lost in the Middle** | El dato que decide una venta suele ser una sola oración enterrada en un párrafo: *"las entregas en Tigre, Nordelta, Benavídez y Escobar quedan fuera del radio"* (DOC-002) o *"el tratamiento se dispensa completo, no se fracciona el envase"* (DOC-016). En un bloque de 3.095 tokens esas cláusulas caen en la zona media, que es donde la atención del modelo es más débil. El modo de falla no es que el sistema diga "no sé": es que **omite la excepción y contesta que sí**. Traducido al negocio, es un pedido tomado para una zona a la que el cadete no llega, o un antibiótico fraccionado. Es la misma alucinación asertiva que documentamos en A.2 de la Entrega 1, solo que ahora con el dato correcto presente en el prompt y no leído. |
-| **Inconsistencia de estado concurrente** | Varias cosas de este dominio cambian dentro de la misma sesión de WhatsApp. La más filosa es la **ventana de corte del reparto** (DOC-004): a las 16:00 el sistema deja de poder prometer entrega para hoy, y un alerta meteorológico puede adelantarla a las 13:00 sin aviso (es el evento que simulamos en B.3). También cambian el **turno farmacéutico nocturno**, que rota semanalmente, y la **vigencia de un convenio**: el de IOMA está suspendido (DOC-012) y el día que se reactive, un prompt estático seguiría diciendo lo contrario. Un System Prompt es una foto tomada en el momento del deploy; el cliente que abrió la conversación a las 15:50 y confirma a las 16:10 recibiría una promesa que el sistema ya no puede cumplir. |
+| **Desangre de tokens** | Los 20 documentos concatenados suman **3.095 tokens**; una consulta típica del canal (*"Hola! Tienen Ibupirac 600 x20? cuanto sale con OSDE y me lo mandan hoy?"*) son **29 tokens**. Meter la base entera en el System Prompt hace que el **99,1 % del input sea contexto que el cliente no pidió**: se pagan 107 tokens de política por cada token de pregunta. Con las 40–60 consultas diarias por sucursal que documentamos en B.1 de la Entrega 1 y tres sucursales, son ~150 consultas/día × 3.095 tokens = **464.250 tokens diarios** quemados en repetir las mismas políticas. Recuperando solo el top-3 (≈465 tokens) el mismo volumen baja a ~70.000: **85 % menos**. Y 20 documentos es el piso: la base real de una farmacia suma el vademécum completo, los convenios de cada plan de cada prepaga y la normativa ANMAT — ahí el prompt no solo se encarece, sino que supera la ventana de contexto. |
+| **Lost in the Middle** | El dato que decide una venta suele ser una sola oración enterrada en un párrafo: *"las entregas en Tigre, Nordelta, Benavídez y Escobar quedan fuera del radio"* (DOC-002) o *"el tratamiento se dispensa completo, no se fracciona el envase"* (DOC-016). En un bloque de 3.095 tokens esas cláusulas caen en la zona media, donde la atención del modelo se degrada. El modo de falla no es que el sistema diga "no sé", sino que **omite la excepción y contesta afirmativamente**. Traducido al negocio: un pedido tomado para una zona a la que el cadete no llega, o una promesa de fraccionamiento ilegal. Es la misma alucinación asertiva de A.2 de la Entrega 1, pero con el dato correcto presente en el prompt y no procesado. |
+| **Inconsistencia de estado concurrente** | Diversos aspectos del dominio cambian dinámicamente durante la operación. La más crítica es la **ventana de corte del reparto** (DOC-004): a las 16:00 hs el sistema deja de prometer entregas en el día, y un alerta meteorológico puede adelantar la suspensión del servicio a las 13:00 hs (evento simulado en B.3). También rotan los **turnos farmacéuticos de guardia** y la **vigencia de los convenios**: si un convenio con IOMA se suspende (DOC-012) o se reactiva, un System Prompt estático mantendría la información desactualizada durante toda la sesión. La base vectorial permite actualizar el metadato en caliente mediante un `upsert` sin alterar el resto de la Base de Conocimiento. |
 
-**Por qué `SELECT ... WHERE descripcion LIKE '%...%'` tampoco resuelve esto.** El `LIKE` compara cadenas de caracteres, no significados: la consulta *"mi vieja tiene 80 años y toma pastillas para el corazón todos los días, ¿le sale algo?"* no contiene ni una sola vez las palabras `PAMI`, `jubilado`, `cobertura` ni `crónico`, así que devuelve cero filas sobre un documento (DOC-010) que la responde entera — y lo verificamos en la Killer Query 1. En el otro extremo, `LIKE '%receta%'` matchea trece de los veinte documentos sin ningún orden de relevancia. El `LIKE` no tiene ranking: no sabe cuál de esos trece es *el* que responde. Un índice invertido con sinónimos mitigaría el primer problema, pero exige mantener a mano el diccionario de jerga de cada barrio (*cadete*, *el bajo*, *la libretita*), que es precisamente el trabajo que el embedding hace solo.
+**Por qué `SELECT ... WHERE descripcion LIKE '%...%'` tampoco resuelve esto.** El operador `LIKE` compara cadenas literales, no conceptos semánticos: la consulta *"mi vieja tiene 80 años y toma pastillas para el corazón todos los días, ¿le sale algo?"* no contiene los términos `PAMI`, `jubilado`, `cobertura` ni `crónico`, devolviendo cero filas sobre el documento (DOC-010) que responde la inquietud de forma exacta (verificado en la Killer Query 1). En el extremo opuesto, `LIKE '%receta%'` retorna trece de los veinte documentos sin ponderación de relevancia. Un `LIKE` carece de ranking de similitud. Un índice invertido con sinónimos paliaría el primer problema, pero exige mantener un diccionario manual de jerga regional (*cadete*, *el bajo*, *la libreta*), tarea que el espacio de embeddings resuelve de manera nativa.
 
 ---
 
@@ -28,16 +28,16 @@ Todos los números de esta tabla están medidos sobre la base real de esta entre
 
 #### Los dos ejes
 
-Reducimos el dominio a los dos ejes que efectivamente separan las consultas del canal — y no son inventados para el ejercicio: son las dos intenciones más frecuentes de la **Matriz de Mapeo de Intenciones** (B.3 de la Entrega 1).
+Reducimos el dominio a dos ejes con significación operativa directa en las intenciones más frecuentes de la **Matriz de Mapeo de Intenciones** (B.3 de la Entrega 1):
 
-* **Eje X — carga logística:** cuánto habla el texto de entrega, zona, plazo, retiro. (Intención `consulta_envio`.)
-* **Eje Y — carga comercial:** cuánto habla de precio, descuento, obra social, medio de pago. (Intención `consulta_precio_cobertura`.)
+* **Eje X — Carga logística:** Nivel de alusión a entregas, zonas de cobertura, plazos y modalidad de retiro (`consulta_envio`).
+* **Eje Y — Carga comercial:** Nivel de alusión a precios, descuentos, obras sociales y medios de pago (`consulta_precio_cobertura`).
 
 | Vector | Qué representa | Coordenadas (logística, comercial) |
 | :--- | :--- | :---: |
 | `D1` | DOC-002 — Envío a domicilio zona norte | `(9, 1)` |
 | `D2` | DOC-009 — Convenio OSDE, cobertura y descuento | `(1, 9)` |
-| `D3` | DOC-005 — Retiro en sucursal abonando con promo bancaria | `(6, 6)` |
+| `D3` | DOC-005 — Retiro en sucursal con promoción bancaria | `(6, 6)` |
 | `Q` | *"¿me lo mandan hoy y cuánto me sale con OSDE?"* | `(7, 5)` |
 
 #### El cálculo en tres pasos
@@ -46,21 +46,21 @@ $$\text{Similitud} = \frac{A \cdot B}{\lVert A \rVert \times \lVert B \rVert}$$
 
 **Q vs. D1 (envío)**
 
-1. Producto punto: `(7 × 9) + (5 × 1)` = `63 + 5` = **68**
-2. Normas: `‖Q‖ = √(7² + 5²) = √74 = 8,6023` · `‖D1‖ = √(9² + 1²) = √82 = 9,0554`
-3. División: `68 / (8,6023 × 9,0554)` = `68 / 77,8979` = **0,8729**
+1. **Producto punto:** `(7 × 9) + (5 × 1)` = `63 + 5` = **68**
+2. **Normas:** `‖Q‖ = √(7² + 5²) = √74 = 8,6023` · `‖D1‖ = √(9² + 1²) = √82 = 9,0554`
+3. **División:** `68 / (8,6023 × 9,0554)` = `68 / 77,8979` = **0,8729**
 
 **Q vs. D2 (cobertura)**
 
-1. Producto punto: `(7 × 1) + (5 × 9)` = `7 + 45` = **52**
-2. Normas: `‖Q‖ = 8,6023` · `‖D2‖ = √82 = 9,0554`
-3. División: `52 / (8,6023 × 9,0554)` = `52 / 77,8979` = **0,6675**
+1. **Producto punto:** `(7 × 1) + (5 × 9)` = `7 + 45` = **52**
+2. **Normas:** `‖Q‖ = 8,6023` · `‖D2‖ = √82 = 9,0554`
+3. **División:** `52 / (8,6023 × 9,0554)` = `52 / 77,8979` = **0,6675**
 
 **Q vs. D3 (mixto)**
 
-1. Producto punto: `(7 × 6) + (5 × 6)` = `42 + 30` = **72**
-2. Normas: `‖Q‖ = 8,6023` · `‖D3‖ = √(6² + 6²) = √72 = 8,4853`
-3. División: `72 / (8,6023 × 8,4853)` = `72 / 72,9936` = **0,9864**
+1. **Producto punto:** `(7 × 6) + (5 × 6)` = `42 + 30` = **72**
+2. **Normas:** `‖Q‖ = 8,6023` · `‖D3‖ = √(6² + 6²) = √72 = 8,4853`
+3. **División:** `72 / (8,6023 × 8,4853)` = `72 / 72,9936` = **0,9864**
 
 #### Validación con NumPy
 
@@ -71,9 +71,9 @@ def similitud_coseno(a, b):
     return np.dot(a, b) / (np.linalg.norm(a) * np.linalg.norm(b))
 
 Q  = np.array([7.0, 5.0])   # "¿me lo mandan hoy y cuánto me sale con OSDE?"
-D1 = np.array([9.0, 1.0])   # DOC-002 · envío zona norte
-D2 = np.array([1.0, 9.0])   # DOC-009 · convenio OSDE
-D3 = np.array([6.0, 6.0])   # DOC-005 · retiro en sucursal con promo bancaria
+D1 = np.array([9.0, 1.0])   # DOC-002 · Envío zona norte
+D2 = np.array([1.0, 9.0])   # DOC-009 · Convenio OSDE
+D3 = np.array([6.0, 6.0])   # DOC-005 · Retiro en sucursal con promo bancaria
 
 for nombre, D in [("DOC-002", D1), ("DOC-009", D2), ("DOC-005", D3)]:
     print(nombre, round(float(similitud_coseno(Q, D)), 4))
