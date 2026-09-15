@@ -98,3 +98,49 @@ Un ranking siempre devuelve un primero, incluso cuando ninguno sirve: el vecino 
 
 ---
 
+### A.3 — `base_conocimiento.json`
+
+**Archivo:** [`base_conocimiento.json`](base_conocimiento.json) — **20 documentos** (mínimo pedido: 15).
+
+Estructura exacta de cada registro:
+
+```json
+{
+  "id": "DOC-002",
+  "descripcion_semantica": "La sucursal Norte cubre el corredor de la zona norte del Gran Buenos Aires sobre el eje de la avenida Maipú y el acceso Panamericana: Vicente López, Olivos, La Lucila, Martínez, Acassuso y San Isidro, incluyendo la franja del bajo que va desde las vías del tren Mitre hasta el río. El reparto se terceriza con una empresa de mensajería que hace tres rondas por día. Las entregas en Tigre, Nordelta, Benavídez y Escobar quedan fuera del radio y se rechazan en el momento de la consulta, sin tomar el pedido. Cuando el cliente vive en el límite de la zona, el sistema pide el código postal antes de confirmar la entrega para no comprometer un plazo que no se puede cumplir.",
+  "metadatos": {
+    "categoria": "logistica",
+    "intencion_relacionada": "consulta_envio",
+    "sucursal": "SUC-002",
+    "vigente": true,
+    "tags_regionales": ["zona norte", "el bajo", "Panamericana", "mensajería", "acercar a casa"]
+  }
+}
+```
+
+#### Contenido de la base
+
+| Categoría | Documentos | Qué cubre |
+| :--- | :--- | :--- |
+| `logistica` | DOC-001 … DOC-006 | Zonas de reparto por sucursal, ventana de corte, retiro en sucursal, cadena de frío |
+| `pagos` | DOC-007, DOC-008 | Medios de pago aceptados, promociones bancarias y su no acumulación |
+| `cobertura` | DOC-009 … DOC-012 | Convenios OSDE, PAMI, Swiss Medical/OMINT/Medifé, IOMA suspendido |
+| `normativa` | DOC-013 … DOC-016, DOC-020 | Psicotrópicos, receta electrónica, venta libre, antibióticos, régimen derogado |
+| `atencion` | DOC-017 … DOC-019 | Horarios y turno nocturno, devoluciones, faltantes y encargo a droguería |
+
+#### El esquema justificado con la Regla del Arquitecto
+
+> *Todo campo sobre el que haya que aplicar un filtro duro va como metadato. Lo narrativo o sensorial queda dentro del texto. Nunca al revés.*
+
+| Campo | Tipo | Por qué es **metadato** y no texto |
+| :--- | :--- | :--- |
+| `categoria` | categórico (`logistica`, `pagos`, `cobertura`, `normativa`, `atencion`) | Es el primer corte duro de cualquier consulta. Una pregunta sobre cobertura no debe competir en distancia contra una política de reparto: no es que el documento de logística sea "menos parecido", es que **no es candidato**. |
+| `intencion_relacionada` | categórico, cerrado a las **seis etiquetas** de la Matriz de Intenciones de la Entrega 1 | Es el enganche literal entre las dos entregas. Lo que el LLM clasifica en el paso 1 del flujo (`consulta_envio`, `validar_receta`, …) se convierte acá en un filtro. El conjunto es el mismo `ENUM` de `interacciones.intencion` del esquema MySQL de B.5.b. |
+| `sucursal` | categórico (`SUC-001`, `SUC-002`, `SUC-003`, `TODAS`) | Viene directo del contrato de la API de la Entrega 1, donde `sucursal_id` es campo obligatorio del request. **El stock, el precio y la zona de reparto son por sucursal**: responder la política de otra sucursal es la misma clase de error que documentamos en A.2 de la Entrega 1. El valor `TODAS` marca las políticas de red y se resuelve con `$in`, no con `$eq`. |
+| `vigente` | **booleano de estado** | El campo que impide que el sistema conteste con una norma derogada o un convenio caído. DOC-012 (IOMA suspendido) y DOC-020 (régimen de psicotrópicos derogado) existen en la base **para bloquear la respuesta equivocada, no para habilitarla**. Es el filtro que la Killer Query 2 pone a prueba. |
+| `tags_regionales` | lista de strings | La jerga comercial y barrial: *cadete*, *el bajo*, *la libretita*, *remedios gratis*, *me lo consiguen*. No se usa para filtrar: sirve de documentación del vocabulario real del canal y es lo que el ETL **rescata y fusiona** cuando purga un casi-duplicado (B.5). |
+
+Y lo que deliberadamente **quedó dentro del texto**, no como metadato: los horarios concretos, los barrios cubiertos, los plazos en horas, los nombres de las drogas reguladas, las excepciones. Nadie pregunta *"documentos cuya ventana de corte sea 16:00"* — preguntan *"¿me llega hoy?"*, y eso se resuelve por significado. Convertir esas cláusulas en metadatos habría multiplicado el esquema por veinte sin ganar un solo filtro útil.
+
+---
+
