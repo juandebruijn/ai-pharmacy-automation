@@ -261,3 +261,107 @@ En producción, si el servidor se reinicia sin persistencia, el sistema queda ci
 
 ---
 
+## Parte B — ChromaDB, filtrado híbrido y ETL
+
+### B.1 — Migración a ChromaDB
+
+**Script:** [`vector_db.py`](vector_db.py) · correr con `python vector_db.py --ingesta`
+
+```python
+cliente = chromadb.PersistentClient(path=str(DIR_CHROMA))   # NO Client()
+coleccion = cliente.get_or_create_collection(
+    name="politicas_farmacia",
+    embedding_function=EmbeddingFarmacia(),
+    metadata={"hnsw:space": "cosine"},
+)
+coleccion.upsert(ids=..., documents=..., metadatas=...)      # NO add()
+```
+
+Salida real:
+
+```
+[B.1] Colección 'politicas_farmacia' en chroma_db/ (PersistentClient, hnsw:space=cosine)
+      upsert de 20 documentos: 0 -> 20 registros.
+```
+
+Correrlo por segunda vez:
+
+```
+      upsert de 20 documentos: 20 -> 20 registros.
+```
+
+Las tres decisiones, y por qué:
+
+* **`PersistentClient` y no `Client()`.** `Client()` es in-memory: nos devolvería exactamente al problema que acabamos de demostrar en A.5. La colección vive en `chroma_db/` y sobrevive al reinicio del proceso.
+* **`hnsw:space="cosine"` y no L2.** Las descripciones tienen largos distintos (de 600 a 900 caracteres) y con distancia euclídea el documento más largo arrastra la distancia por magnitud y no por contenido. Además es la misma métrica del `IndexFlatIP` normalizado de A.4, así que los números de la Parte A y los de la Parte B son directamente comparables.
+* **`upsert` y no `add`.** `add` revienta con `IDExistsError` en la segunda corrida y obliga a limpiar la colección a mano antes de cada ingesta. Con `upsert` el script es **idempotente**: reconstruir la base entera desde `base_conocimiento.json` es siempre seguro, que es la propiedad que pide el enunciado cuando dice que la base se reconstruye desde el JSON.
+
+> **Un detalle de implementación.** ChromaDB solo acepta `str`, `int`, `float` o `bool` en los metadatos: una lista rompe el `upsert`. `tags_regionales` se guarda como string separado por comas (`aplanar_metadatos()`) y el JSON canónico conserva la lista. Es el único lugar donde el esquema de la base y el de la colección difieren, y está aislado en una sola función.
+
+#### La función de embedding: por qué no alcanza la que viene de fábrica
+
+ChromaDB trae `GoogleGenaiEmbeddingFunction` lista para usar, y la usamos — pero heredando de ella para cambiar **una sola cosa**: que las consultas se vectoricen con `task_type="RETRIEVAL_QUERY"` en vez de `"RETRIEVAL_DOCUMENT"`.
+
+```python
+class EmbeddingFarmacia(GoogleGenaiEmbeddingFunction):
+    def __init__(self):
+        super().__init__(model_name=MODELO, dimension=DIMENSION,
+                         task_type="RETRIEVAL_DOCUMENT")
+        self._como_consulta = GoogleGenaiEmbeddingFunction(
+            model_name=MODELO, dimension=DIMENSION, task_type="RETRIEVAL_QUERY"
+        )
+
+    def embed_query(self, input):
+        return self._como_consulta(input)
+```
+
+No es un adorno: una política de 900 caracteres y una pregunta de WhatsApp de diez palabras no son el mismo tipo de texto. Medimos las dos variantes sobre las mismas 24 consultas con las que calibramos el umbral en C.2:
+
+| Cómo se vectoriza la consulta | Peor caso **dentro** del catálogo | Mejor caso **fuera** | Brecha |
+| :--- | ---: | ---: | ---: |
+| Como documento (la función tal cual viene) | 0,2798 | 0,2696 | **−0,0102** |
+| Como consulta (`RETRIEVAL_QUERY`) | 0,3400 | 0,3631 | **+0,0231** |
+
+Con la función de fábrica la brecha es **negativa**: la peor consulta legítima queda más lejos que la mejor consulta fuera de catálogo, y **no existe ningún umbral que las separe**. El sistema, o contesta cualquier cosa, o rechaza consultas válidas. Las seis líneas de la subclase son lo que hace posible el umbral de aceptación de C.2.
+
+---
+
+### B.2 — Los tres límites de FAISS que ChromaDB resuelve
+
+| Límite de FAISS | Cómo se manifiesta en nuestro dominio | Cómo lo resuelve ChromaDB |
+| :--- | :--- | :--- |
+| **Sin persistencia transaccional / atomicidad** | `write_index()` serializa el índice entero de una vez. Si la farmacia actualiza la política de reparto de una sucursal y el proceso se corta a mitad del `write`, el archivo queda truncado y **se pierden los 20 documentos**, no el que se estaba tocando. Peor: el `.index` y su sidecar `farmacia_ids.json` se escriben por separado, así que un corte entre las dos escrituras deja el mapeo fila → `DOC-XXX` desfasado y el sistema empieza a devolver la política de la sucursal equivocada con toda confianza. Y no hay forma de escribir un documento sin reescribir el archivo completo. | El `PersistentClient` escribe sobre SQLite con un WAL: cada `upsert` es una transacción que se confirma o no ocurre, y el documento, sus metadatos y su vector se guardan juntos en la misma operación. No existe el estado intermedio de "vector actualizado pero metadato viejo". |
+| **Sin filtrado híbrido nativo** | Se ve literalmente en el log de A.4: la consulta *"puedo abonar escaneando con la billetera del celular?"* trae a **DOC-012 (convenio IOMA suspendido, `vigente: false`) en el puesto 3**, y la consulta 1 trae las tres sucursales mezcladas. FAISS solo sabe de vectores: no conoce `vigente` ni `sucursal`. La única salida sería traer top-20 y descartar en Python — el post-filtering que el enunciado prohíbe, y que además puede dejar menos de *k* resultados sin que nadie se entere. | El `where` con operadores nativos (`$and`, `$eq`, `$in`) se evalúa **dentro** del motor, antes de rankear. `{"vigente": {"$eq": True}}` hace que el régimen derogado ni siquiera sea candidato, y `{"sucursal": {"$in": ["SUC-002", "TODAS"]}}` deja las políticas de la sucursal consultada más las de red. Es B.4. |
+| **CRUD ineficiente / sin concurrencia** | `IndexFlatIP` no tiene borrado real: `remove_ids` reindexa y desplaza todas las filas posteriores, lo que **invalida el sidecar** entero. Actualizar el documento del corte de reparto (DOC-004) obliga a reconstruir y reescribir el índice completo. Y el archivo no está pensado para escritores concurrentes: con el proceso de atención leyendo y un ETL nocturno escribiendo, no hay bloqueo que los coordine. En una red de tres sucursales que tocan sus propias políticas, eso es una condición de carrera esperando. | `upsert` y `delete` operan por `id` sobre el registro puntual, sin tocar el resto de la colección; el índice HNSW se actualiza incremental. SQLite serializa los escritores y deja leer en paralelo, así que la consulta de un cliente y la actualización de una política pueden convivir. Es lo que hace viable el evento en caliente de B.3. |
+
+---
+
+### B.3 — Evento de negocio en caliente
+
+**Correr con:** `python vector_db.py --evento`
+
+El evento elegido es el que A.1 identificó como el dato más volátil del dominio: **la ventana de corte del reparto se adelanta por un alerta meteorológico**, mientras hay clientes con la conversación abierta preguntando si les llega hoy.
+
+```
+[B.3] Estado ANTES del evento:
+      metadatos: {'tags_regionales': 'horario de corte, para hoy, urgente, en el día, llega hoy',
+                  'categoria': 'logistica', 'sucursal': 'TODAS', 'vigente': True,
+                  'intencion_relacionada': 'consulta_envio'}
+      documento: La ventana de corte del reparto define si un pedido llega en el día o pasa a la
+                 jornada siguiente. Para que una compra s...
+
+[B.3] Estado DESPUÉS del upsert (verificado con get):
+      metadatos: {'intencion_relacionada': 'consulta_envio', 'sucursal': 'TODAS',
+                  'tags_regionales': 'contingencia, corte adelantado, no llega hoy, alerta',
+                  'vigente': True, 'categoria': 'logistica'}
+      documento: CONTINGENCIA VIGENTE HOY: por un alerta meteorológico la mensajería suspendió la
+                 ronda de la tarde y la ventana de corte...
+      total de registros en la colección: 20 (no se duplicó nada)
+```
+
+El cambio impacta de inmediato en la búsqueda: en la corrida de B.4, la consulta *"me lo acercan hasta Olivos en el día?"* ahora devuelve el documento de contingencia en el puesto 2.
+
+**Por qué `upsert` y no `add` ni `update`.** `add` falla si el id ya existe y `update` falla si no existe: las dos obligan a consultar antes para saber cuál usar, y esa consulta previa es una condición de carrera con cualquier otro proceso escribiendo. `upsert` resuelve el caso real —"quiero que DOC-004 diga esto, exista o no"— en una sola operación atómica, y hace que el script sea re-ejecutable sin duplicar ni romperse.
+
+---
+

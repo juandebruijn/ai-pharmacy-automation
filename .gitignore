@@ -6,3 +6,4 @@ __pycache__/
 # Entrega 2 - binarios que se reconstruyen desde base_conocimiento.json
 indice_faiss/
 *.index
+chroma_db/
