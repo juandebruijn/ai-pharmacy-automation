@@ -2,3 +2,7 @@
 venv/
 __pycache__/
 *.pyc
+
+# Entrega 2 - binarios que se reconstruyen desde base_conocimiento.json
+indice_faiss/
+*.index

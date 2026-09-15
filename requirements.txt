@@ -1,3 +1,9 @@
+# Entrega 1 - pipeline de extraccion con Gemini
 pydantic>=2.9
-google-genai>=1.0
 python-dotenv>=1.0
+
+# Entrega 2 - base de conocimiento vectorial
+# google-genai cubre las dos entregas: el modelo de chat de app.py y los embeddings.
+google-genai>=2.22.0
+numpy>=2.5.3
+faiss-cpu>=1.15.0
