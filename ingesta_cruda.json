@@ -1,0 +1,68 @@
+[
+  {
+    "id": "DOC-101",
+    "descripcion_semantica": "Desde el local de Vicente López mandamos pedidos a toda la zona: Olivos, La Lucila, Martínez, Acassuso y San Isidro, más la parte de abajo del barrio entre las vías del Mitre y la costa. El delivery lo hace un servicio de cadetes contratado que pasa tres veces al día. Para Tigre, Nordelta, Benavídez o Escobar no llegamos y hay que avisarle al cliente antes de tomarle el pedido. Si el domicilio queda justo en el borde de la cobertura conviene pedirle el código postal primero.",
+    "metadatos": {
+      "categoria": "logistica",
+      "intencion_relacionada": "consulta_envio",
+      "sucursal": "SUC-002",
+      "vigente": true,
+      "tags_regionales": ["delivery zona norte", "cadetería", "Vicente López", "hasta dónde llegan"]
+    }
+  },
+  {
+    "id": "DOC-102",
+    "descripcion_semantica": "Las pastillas de la lista controlada, tipo clonazepam, alprazolam o zolpidem, no se pueden entregar sin la receta oficial que queda archivada en la farmacia, por duplicado o triplicado según el caso, con el troquel pegado y el sello del médico. La receta no vuelve al paciente. Nada de esto se vende por mensaje ni se manda a domicilio: el que retira tiene que venir con el papel original y el documento, y el farmacéutico lo chequea en el momento.",
+    "metadatos": {
+      "categoria": "normativa",
+      "intencion_relacionada": "validar_receta",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["controlados", "receta que queda", "clonazepam", "no se manda"]
+    }
+  },
+  {
+    "id": "DOC-103",
+    "descripcion_semantica": "Podés abonar por transferencia al CBU o al alias, con tarjeta de crédito o débito de cualquier banco a través de la pasarela, escaneando el QR de la billetera virtual, o en efectivo cuando te lo entregan o en el mostrador. No tomamos cheques, no operamos en dólares y no se puede dividir un mismo pago entre dos medios. El pedido recién queda firme cuando la plata se acredita: mandar el comprobante de la transferencia no libera el despacho, porque el stock se reserva contra la acreditación y no contra la captura.",
+    "metadatos": {
+      "categoria": "pagos",
+      "intencion_relacionada": "consulta_precio_cobertura",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["cómo pago", "CBU", "QR", "efectivo", "comprobante"]
+    }
+  },
+  {
+    "id": "DOC-104",
+    "descripcion": "La campaña de vacunación antigripal se aplica en las tres sucursales entre marzo y julio, con turno previo sacado por el canal de WhatsApp y a cargo de un profesional habilitado. Los grupos de riesgo definidos por el ministerio —mayores de sesenta y cinco años, embarazadas, personal de salud y pacientes con enfermedades crónicas respiratorias o metabólicas— acceden sin cargo presentando la orden médica y la credencial de la obra social. El resto del público la abona a precio de lista. La aplicación exige permanecer quince minutos en la sala de observación y no se realiza a domicilio bajo ninguna modalidad.",
+    "metadata": {
+      "categoria": "atencion",
+      "intencion_relacionada": "consulta_stock",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["vacunación", "antigripal", "turno", "grupo de riesgo", "me la dan gratis"]
+    }
+  },
+  {
+    "id": "DOC-105",
+    "descripcion_semantica": "El sector de puericultura y lactancia concentra leches maternizadas de fórmula de inicio, continuación y crecimiento, fórmulas especiales para alergia a la proteína de la leche de vaca, mamaderas, chupetes, sacaleches y accesorios de higiene infantil. Las fórmulas especiales requieren indicación médica escrita porque muchas obras sociales las cubren solo con auditoría previa, y el stock se maneja con pedido anticipado a la droguería por su baja rotación. No se despachan a domicilio junto con medicamentos de cadena de frío para no comprometer la conservación de estos últimos.",
+    "metadatos": {
+      "categoria": "producto",
+      "intencion_relacionada": "consulta_stock",
+      "sucursal": "TODAS",
+      "vigente": "true",
+      "tags_regionales": "puericultura, leche de fórmula, mamadera, APLV, bebé"
+    }
+  },
+  {
+    "id": "DOC-010",
+    "descripcion_semantica": "El sector de dermocosmética ofrece asesoramiento presencial gratuito con turno previo para rutinas de cuidado facial, protección solar, tratamiento del acné y cuidado capilar. La asesora trabaja con las líneas dermatológicas de venta en farmacia y puede armar una rutina en función del tipo de piel, pero no diagnostica ni indica tratamientos: cualquier lesión, mancha sospechosa o cuadro que exceda el cuidado cosmético se deriva a consulta dermatológica. Los productos de esta línea no tienen cobertura de obra social y sí participan de las promociones bancarias.",
+    "metadatos": {
+      "categoria": "producto",
+      "intencion_relacionada": "fuera_de_alcance",
+      "sucursal": "TODAS",
+      "vigente": true,
+      "tags_regionales": ["dermocosmética", "asesoramiento", "protector solar", "rutina de piel"]
+    }
+  }
+]
