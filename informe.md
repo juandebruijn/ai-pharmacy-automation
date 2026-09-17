@@ -450,13 +450,23 @@ El diseño asume que el LLM puede extraer correctamente el nombre y la dosis del
 
 ---
 
-### **C.4 — Técnica de Prompting**
-*   **Técnica seleccionada:** Se implementó una técnica de Zero-Shot Prompting con Restricciones Rígidas de Comportamiento.
-*   **Justificación:** El system prompt define con un nivel alto de detalle el rol ("motor de extracción estructurada"), establece prohibiciones directas (no inventar datos, no responder consultas conversacionales), e instruye explícitamente cómo manejar los fallbacks con valores null. Dado que el modelo utilizado es un modelo optimizado para seguir instrucciones complejas en JSON, un enfoque Zero-Shot es suficiente para resolver la extracción en la gran mayoría de las consultas estándar.
+### **C.4 — Técnica de Prompting y Evaluación Empírica**
+* **Técnica seleccionada:** Se implementó una técnica de **Zero-Shot Prompting con Restricciones Rígidas de Comportamiento**.
+* **Justificación conceptual:** El system prompt define con un nivel alto de detalle el rol ("motor de extracción estructurada"), establece prohibiciones directas (no inventar datos, no responder consultas conversacionales), e instruye explícitamente cómo manejar los fallbacks con valores null. Dado que el modelo utilizado es un modelo optimizado para seguir instrucciones complejas en JSON, un enfoque Zero-Shot es suficiente para resolver la extracción en la gran mayoría de las consultas estándar minimizando la complejidad del prompt y el consumo de tokens.
+* **Comparativa Empírica (Zero-Shot vs. Few-Shot):** Aprovechando el lote de pruebas existente, se ejecutó una validación empírica comparativa incorporando ejemplos de referencia (*few-shot*). 
+  * *Observación:* Si bien el esquema *zero-shot* demostró una estabilidad óptima y menor latencia, el enfoque *few-shot* aportó una leve mejora marginal en la adherencia estricta al formato ante variaciones atípicas de redacción. 
+  * *Conclusión:* Se valida que el enfoque *zero-shot* es el más eficiente para la arquitectura actual por costos y simplicidad, manteniendo un comportamiento totalmente predecible respaldado por las validaciones de Pydantic.
 
 ---
 
-### **C.5 — Cierre: Dónde se Conecta**
+### **C.5 — Nota de Consistencia Arquitectural (Literal / ENUM / Matriz)**
+Con el fin de garantizar la integridad y evitar discrepancias entre la capa de aplicación y la de persistencia, se formaliza la regla de consistencia documentada en los esquemas del repositorio:
+* **Sincronización de Dominios:** Los estados e intenciones se estructuran de forma unívoca vinculando los tipos definidos por software (como los `Literal` en validadores y contratos) directamente con los tipos enumerados (`ENUM`) en las tablas transaccionales de MySQL (por ejemplo, en `interacciones.intencion` y `pedidos.estado`).
+* **Impacto:** Esto asegura que cualquier evolución de las reglas de negocio exija una actualización coherente de los contratos, previniendo errores silenciosos de tipado o desalineaciones entre la interfaz, el modelo de IA y la base de datos.
+
+---
+
+### **C.6 — Cierre: Dónde se Conecta**
 
 El estado actual del proyecto representa la capa de entrada y normalización lingüística (El Mozo) de nuestra arquitectura inteligente. Se conecta de forma directa en el paso intermedio entre el receptor de WhatsApp y la lógica transaccional de negocio, y representa el Paso 1 [LLM] y Paso 2 [Código] del flujo técnico (B.6). 
 
