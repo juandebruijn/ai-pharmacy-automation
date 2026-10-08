@@ -7,18 +7,22 @@ B.3  Evento de negocio en caliente con upsert, verificado con get(ids=[...]).
 B.4  buscar_farmacia(): búsqueda semántica combinada con filtro duro por
      operadores nativos dentro del where.
 B.6  Las tres killer queries.
+C.2  Calibración del umbral de aceptación.
 
 Uso:
     python vector_db.py --ingesta                  # B.1
     python vector_db.py --evento                   # B.3
     python vector_db.py --buscar "me llega hoy?"   # B.4
     python vector_db.py --buscar "..." --categoria logistica --n 5
+    python vector_db.py --buscar "..." --sucursal SUC-002 --intencion consulta_envio
     python vector_db.py --killer                   # B.6
+    python vector_db.py --calibrar                 # C.2
 """
 
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
 
 import chromadb
@@ -40,13 +44,14 @@ COLECCION = "politicas_farmacia"
 
 # C.2 — Umbral de aceptación. Distancia coseno: cuanto más chica, más parecido.
 #
-# No está elegido a ojo: sale de medir 14 consultas que sí tienen respuesta en la
-# base contra 10 que no (ver informe_entrega2.md, C.2).
-#   peor caso DENTRO del catálogo : 0.3400
-#   mejor caso FUERA del catálogo : 0.3631
-# 0.35 parte esa brecha. Si nada lo supera, el sistema no devuelve el más cercano:
-# dice que no tiene la información.
-UMBRAL_DISTANCIA = 0.35
+# No está elegido a ojo: sale de `python vector_db.py --calibrar`, que mide 41
+# consultas que sí tienen respuesta en la base contra 25 que no (informe, C.2).
+# Los dos grupos se SOLAPAN (brecha -0.0202), así que no existe un corte perfecto:
+# 0.340 y 0.345 empatan con 2 errores sobre 66 (97 %) y se toma 0.345, el centro
+# de ese tramo, porque 0.340 cae exactamente sobre una consulta válida.
+# Si nada lo supera, el sistema no devuelve el más cercano: dice que no tiene la
+# información. El re-ranker que ataca el solapamiento queda para la Entrega 3.
+UMBRAL_DISTANCIA = 0.345
 
 RESPUESTA_SIN_MATCH = (
     "No tengo esa información en mi base de conocimiento. "
@@ -62,7 +67,7 @@ class EmbeddingFarmacia(GoogleGenaiEmbeddingFunction):
 
     No es un adorno. Una política de 900 caracteres y una pregunta de WhatsApp de
     diez palabras no son el mismo tipo de texto, y el modelo lo sabe. Medimos las
-    dos variantes sobre las 24 consultas de C.2:
+    dos variantes sobre las 24 consultas de la primera calibración de C.2:
 
         consulta como DOCUMENTO -> peor caso dentro 0.2798, mejor fuera 0.2696
                                    (brecha NEGATIVA: ningún umbral separa)
@@ -185,10 +190,16 @@ def evento_en_caliente() -> None:
 # B.4 — Búsqueda híbrida
 # --------------------------------------------------------------------------- #
 def buscar_farmacia(query_semantica: str, filtro_categoria: str | None = None,
-                    solo_vigentes: bool = True, n_resultados: int = 3) -> dict:
+                    solo_vigentes: bool = True, n_resultados: int = 3,
+                    sucursal: str | None = None, intencion: str | None = None) -> dict:
     """
     Búsqueda semántica (query_texts) + filtro duro por operadores nativos ($and,
-    $eq) dentro del where.
+    $eq, $in) dentro del where.
+
+    sucursal e intencion son los dos campos que el orquestador ya tiene antes de
+    buscar: sucursal_id viene en el request de la API (Entrega 1) e intencion es
+    la etiqueta que extrae app.py. La sucursal se resuelve con $in y no con $eq
+    porque las políticas de red (sucursal="TODAS") aplican a todas.
 
     No hay post-filtering: ningún if de Python descarta resultados después de la
     query. Si filtráramos a posteriori, el motor calcularía similitud contra
@@ -200,6 +211,10 @@ def buscar_farmacia(query_semantica: str, filtro_categoria: str | None = None,
         condiciones.append({"vigente": {"$eq": True}})
     if filtro_categoria:
         condiciones.append({"categoria": {"$eq": filtro_categoria}})
+    if sucursal:
+        condiciones.append({"sucursal": {"$in": [sucursal, "TODAS"]}})
+    if intencion:
+        condiciones.append({"intencion_relacionada": {"$eq": intencion}})
 
     # ChromaDB rechaza un $and de un solo elemento.
     if len(condiciones) > 1:
@@ -247,7 +262,8 @@ def imprimir(salida: dict) -> None:
         estado = "ACEPTADO" if r["supera_umbral"] else "descartado por umbral"
         meta = r["metadatos"]
         print(f"  {puesto}. {r['id']}  distancia={r['distancia']:.4f}  [{estado}]")
-        print(f"     categoria={meta['categoria']}  vigente={meta['vigente']}")
+        print(f"     categoria={meta['categoria']}  sucursal={meta['sucursal']}  "
+              f"intencion={meta['intencion_relacionada']}  vigente={meta['vigente']}")
         print(f"     {r['texto'][:110]}...")
     if not salida["hay_respuesta"]:
         print(f'\n  >> Sin coincidencias sobre el umbral. El sistema responde:\n'
@@ -290,15 +306,173 @@ def killer_queries() -> None:
     imprimir(buscar_farmacia("¿hacen análisis de sangre y electrocardiogramas en la farmacia?"))
 
 
+# --------------------------------------------------------------------------- #
+# C.2 — Calibración del umbral de aceptación
+# --------------------------------------------------------------------------- #
+# (consulta, documento que la responde), escritas como pregunta un cliente por
+# WhatsApp y sin repetir el vocabulario del documento. DOC-104, DOC-105 y DOC-021
+# existen recién después del ETL de B.5.
+CALIBRACION_DENTRO = [
+    ("me mandan algo a Recoleta?", "DOC-001"),
+    ("llegan con el delivery hasta Congreso?", "DOC-001"),
+    ("hacen envíos a Martínez o San Isidro?", "DOC-002"),
+    ("vivo en Nordelta, me lo pueden llevar?", "DOC-002"),
+    ("reparten en Morón los sábados?", "DOC-003"),
+    ("estoy en Ramos Mejía, a qué hora sale el cadete?", "DOC-003"),
+    ("hasta qué hora puedo pedir para que me llegue hoy?", "DOC-004"),
+    ("si compro a la tarde me llega en el día?", "DOC-004"),
+    ("lo reservo por acá y lo paso a buscar mañana?", "DOC-005"),
+    ("cuánto tiempo me guardan el pedido si lo voy a retirar?", "DOC-005"),
+    ("me pueden mandar la insulina o se corta la cadena de frío?", "DOC-006"),
+    ("la vacuna viaja en heladerita?", "DOC-006"),
+    ("aceptan mercado pago?", "DOC-007"),
+    ("puedo pagar en efectivo cuando me lo traen?", "DOC-007"),
+    ("se puede pagar con tarjeta de débito?", "DOC-007"),
+    ("puedo abonar escaneando con la billetera del celular?", "DOC-007"),
+    ("el descuento del banco se suma al de la prepaga?", "DOC-008"),
+    ("los miércoles hay promo con algún banco?", "DOC-008"),
+    ("tengo OSDE 210, cuánto me cubren?", "DOC-009"),
+    ("con OSDE me hacen descuento en los remedios de todos los meses?", "DOC-009"),
+    ("soy jubilada, la metformina me sale gratis?", "DOC-010"),
+    ("mi abuelo tiene PAMI, qué le cubren?", "DOC-010"),
+    ("trabajan con Swiss Medical?", "DOC-011"),
+    ("qué tengo que llevar para usar Medifé?", "DOC-011"),
+    ("me venden clonazepam con la receta común?", "DOC-013"),
+    ("qué receta necesito para el rivotril?", "DOC-013"),
+    ("me sirve la receta digital que me mandó el médico por mail?", "DOC-014"),
+    ("si les mando foto de la receta alcanza?", "DOC-014"),
+    ("necesito receta para comprar ibuprofeno?", "DOC-015"),
+    ("el paracetamol es de venta libre?", "DOC-015"),
+    ("me venden amoxicilina sin receta? tengo la caja vieja", "DOC-016"),
+    ("necesito antibiótico para la garganta, sin receta se puede?", "DOC-016"),
+    ("están abiertos el domingo?", "DOC-017"),
+    ("hay alguna farmacia de turno a la noche?", "DOC-017"),
+    ("me equivoqué de remedio, lo puedo devolver?", "DOC-018"),
+    ("si no lo uso me devuelven la plata?", "DOC-018"),
+    ("y si no tienen el remedio en esta sucursal qué hago?", "DOC-019"),
+    ("me lo pueden encargar si no les queda?", "DOC-019"),
+    ("dan la vacuna de la gripe?", "DOC-104"),
+    ("venden leche para bebé con alergia a la proteína?", "DOC-105"),
+    ("tienen alguien que me asesore con protector solar?", "DOC-021"),
+]
+
+# Sin respuesta en la base. La primera mitad son "vecinas" del dominio —cosas que
+# una farmacia podría hacer pero esta no documenta—: son las que estresan el umbral.
+CALIBRACION_FUERA = [
+    "¿hacen análisis de sangre y electrocardiogramas en la farmacia?",
+    "¿me pueden tomar la presión ahí?",
+    "¿venden lentes de contacto o anteojos?",
+    "¿hacen recetas magistrales o preparados?",
+    "¿tienen test de embarazo?",
+    "¿me pueden aplicar una inyección intramuscular?",
+    "¿venden alimento para perros o remedios veterinarios?",
+    "¿tienen sillas de ruedas o muletas en alquiler?",
+    "¿trabajan con IOSFA?",
+    "¿puedo pagar en cuotas sin interés con Naranja?",
+    "¿hacen tarjeta de fidelidad o puntos?",
+    "¿hacen perforación de orejas?",
+    "¿me pueden recomendar un médico clínico de la zona?",
+    "¿tienen el certificado de vacunas digital?",
+    "¿hacen envíos al interior del país por correo?",
+    "¿cuál es el CUIT de la farmacia para facturar?",
+    "¿a qué hora juega Boca hoy?",
+    "¿cuánto está el dólar blue?",
+    "¿me pasás una receta de milanesas?",
+    "¿buscan empleados? quiero dejar mi CV",
+    "¿dónde queda el banco más cercano?",
+    "¿cómo cambio la clave del wifi?",
+    "¿venden cargadores de celular?",
+    "¿qué película dan en el cine?",
+    "¿alquilan el local de al lado?",
+]
+
+
+def _top1(consulta: str, intentos: int = 3) -> tuple[str, float]:
+    # La API de embeddings devuelve 500 INTERNAL de vez en cuando: con 66 consultas
+    # seguidas es casi seguro que alguna lo pise, así que se reintenta.
+    for intento in range(1, intentos + 1):
+        try:
+            r = buscar_farmacia(consulta, n_resultados=1)["resultados"][0]
+            return r["id"], r["distancia"]
+        except ValueError:
+            if intento == intentos:
+                raise
+            time.sleep(2 * intento)
+
+
+def calibrar_umbral() -> None:
+    """
+    Mide el top-1 de cada consulta de calibración y barre umbrales candidatos.
+
+    Si los dos grupos no se tocan, el umbral es el punto medio de la brecha. Si se
+    solapan —que es lo que pasa con un lote suficientemente grande— no existe un
+    corte perfecto y el umbral pasa a ser el que MENOS errores comete. Si varios
+    empatan se toma el del centro del tramo, para no quedar pegado a una consulta:
+    con la variación de milésimas de la API, un umbral al borde cambia de veredicto
+    de una corrida a otra.
+    """
+    coleccion = obtener_coleccion()
+    presentes = set(coleccion.get(include=[])["ids"])
+    dentro_validas = [(c, d) for c, d in CALIBRACION_DENTRO if d in presentes]
+    if len(dentro_validas) < len(CALIBRACION_DENTRO):
+        print("  (se omiten consultas cuyo documento no está en la colección: "
+              "corré etl_purga.py para incluirlas)")
+
+    print(f"[C.2] Calibración sobre {coleccion.count()} registros · umbral actual {UMBRAL_DISTANCIA}\n")
+    print(f"=== DENTRO del catálogo ({len(dentro_validas)}) ===")
+    dentro = []
+    for consulta, esperado in dentro_validas:
+        doc, dist = _top1(consulta)
+        dentro.append(dist)
+        nota = "" if doc == esperado else f"   <- esperaba {esperado}"
+        print(f"  {dist:.4f}  {doc}  {consulta}{nota}")
+
+    print(f"\n=== FUERA del catálogo ({len(CALIBRACION_FUERA)}) ===")
+    fuera = []
+    for consulta in CALIBRACION_FUERA:
+        doc, dist = _top1(consulta)
+        fuera.append(dist)
+        print(f"  {dist:.4f}  {doc}  {consulta}")
+
+    peor_dentro, mejor_fuera = max(dentro), min(fuera)
+    print("\n=== Distribución ===")
+    print(f"  dentro : {min(dentro):.4f} – {peor_dentro:.4f}")
+    print(f"  fuera  : {mejor_fuera:.4f} – {max(fuera):.4f}")
+    print(f"  brecha : {mejor_fuera - peor_dentro:+.4f}"
+          + ("   (solapamiento: ningún umbral separa perfecto)" if mejor_fuera <= peor_dentro else ""))
+
+    print("\n=== Barrido de umbrales ===")
+    print("  umbral  falsos rechazos  falsas aceptaciones  errores")
+    candidatos = []
+    for milesimas in range(280, 401, 5):
+        umbral = milesimas / 1000
+        fr = sum(d > umbral for d in dentro)
+        fa = sum(d <= umbral for d in fuera)
+        candidatos.append((fr + fa, umbral, fr, fa))
+        actual = "   <- actual" if abs(umbral - UMBRAL_DISTANCIA) < 1e-9 else ""
+        print(f"  {umbral:.3f}  {fr:>15}  {fa:>19}  {fr + fa:>7}{actual}")
+
+    minimo = min(c[0] for c in candidatos)
+    empatados = [c for c in candidatos if c[0] == minimo]
+    errores, umbral, fr, fa = empatados[len(empatados) // 2]  # centro del tramo
+    total = len(dentro) + len(fuera)
+    print(f"\n  Mejor umbral: {umbral:.3f} -> {errores} errores sobre {total} consultas "
+          f"({fr} falsos rechazos, {fa} falsas aceptaciones), "
+          f"acierto {100 * (total - errores) / total:.1f} %")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="ChromaDB y búsqueda híbrida (B.1–B.4, B.6).")
     parser.add_argument("--ingesta", action="store_true", help="B.1: carga base_conocimiento.json con upsert.")
     parser.add_argument("--evento", action="store_true", help="B.3: evento en caliente + get de verificación.")
     parser.add_argument("--buscar", metavar="CONSULTA", help="B.4: búsqueda híbrida.")
     parser.add_argument("--categoria", help="filtro duro por categoría.")
+    parser.add_argument("--sucursal", help="filtro duro por sucursal (SUC-001/002/003); suma las de red.")
+    parser.add_argument("--intencion", help="filtro duro por intencion_relacionada.")
     parser.add_argument("--n", type=int, default=3, help="cantidad de resultados (default 3).")
     parser.add_argument("--incluir-no-vigentes", action="store_true", help="desactiva el filtro de vigencia.")
     parser.add_argument("--killer", action="store_true", help="B.6: las tres killer queries.")
+    parser.add_argument("--calibrar", action="store_true", help="C.2: calibración del umbral.")
     args = parser.parse_args()
 
     if args.ingesta:
@@ -307,10 +481,13 @@ def main() -> int:
         evento_en_caliente()
     if args.buscar:
         imprimir(buscar_farmacia(args.buscar, args.categoria,
-                                 not args.incluir_no_vigentes, args.n))
+                                 not args.incluir_no_vigentes, args.n,
+                                 args.sucursal, args.intencion))
     if args.killer:
         killer_queries()
-    if not (args.ingesta or args.evento or args.buscar or args.killer):
+    if args.calibrar:
+        calibrar_umbral()
+    if not (args.ingesta or args.evento or args.buscar or args.killer or args.calibrar):
         parser.print_help()
 
     return 0

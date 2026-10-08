@@ -1,11 +1,11 @@
 # B.6 — Killer Queries
 
-Tres consultas trampa contra la colección `politicas_farmacia` (20 documentos).
+Tres consultas trampa contra la colección `politicas_farmacia` (**23 registros**: los 20 canónicos de `base_conocimiento.json` más DOC-104, DOC-105 y DOC-021, los tres que sobrevivieron al ETL de B.5).
 
 **Reproducible con:** `python vector_db.py --killer`
 **Modelo:** `gemini-embedding-001`, 768 dimensiones
 **Métrica:** distancia coseno (`hnsw:space="cosine"`) — más chica = más parecido
-**Umbral de aceptación:** distancia ≤ 0,35 (justificado en `informe_entrega2.md`, C.2)
+**Umbral de aceptación:** distancia ≤ 0,345 (calibrado con 66 consultas en `informe_entrega2.md`, C.2)
 
 > **Sobre reproducir estos números.** La API de embeddings es un servicio hospedado y
 > devuelve vectores con variación de milésimas entre corridas, así que las distancias se
@@ -23,11 +23,13 @@ Tres consultas trampa contra la colección `politicas_farmacia` (20 documentos).
 | :-: | :--- | :--- | :--- | :--- | :-: |
 | **1** | *"mi vieja tiene 80 años y toma pastillas para el corazón todos los días, ¿le sale algo o no paga nada?"*<br><br>`filtro_categoria="cobertura"` | **Poder semántico: jerga sin ninguna palabra del documento.** La consulta no dice *PAMI*, ni *jubilado*, ni *cobertura*, ni *crónico*, ni *vademécum*, ni *presión arterial*, ni *afiliado*. Ni una de las palabras clave del documento que la responde. Un `LIKE '%...%'` devuelve **cero filas**. | DOC-010 (convenio PAMI: jubilados, crónicos de presión, medicamentos gratuitos) en el puesto 1, por debajo del umbral. | **DOC-010 · 0,2929 · ACEPTADO**<br>Los puestos 2 y 3 (DOC-011 a 0,3524 y DOC-009 a 0,3618) quedan **por encima del umbral** y se descartan: no solo acierta el primero, además reconoce que los otros dos convenios no responden esta pregunta. | ✅ |
 | **2** | *"el médico me hizo la receta en su papel con membrete, ¿sirve para el alprazolam? ¿me lo pueden enviar a domicilio?"*<br><br>`solo_vigentes` en `False` vs. `True` | **El metadato salva el día.** DOC-020 es el régimen de psicotrópicos **derogado** (`vigente: false`), que permitía receta manuscrita y envío a domicilio. Describe *exactamente* lo que el cliente pregunta, así que la semántica cruda lo pone **primero**. Si el orquestador se lo pasa al LLM, el sistema habilita una dispensa que hoy es una **infracción sanitaria**. | **(a) sin filtro:** DOC-020 gana → desastre.<br>**(b) con `{"vigente": {"$eq": True}}` en el `where`:** DOC-020 ni siquiera es candidato y gana DOC-013, el régimen vigente. | **(a) SIN filtro:**<br>1. **DOC-020 · 0,2485 · `vigente=False`** ← el derogado gana<br>2. DOC-013 · 0,2736<br>3. DOC-014 · 0,3060<br><br>**(b) CON el filtro en el `where`:**<br>1. **DOC-013 · 0,2736 · `vigente=True`** ← el vigente<br>2. DOC-014 · 0,3060<br>3. DOC-001 · 0,3332 | ✅ |
-| **3** | *"¿hacen análisis de sangre y electrocardiogramas en la farmacia?"* | **Prueba de estrés: consulta fuera del catálogo.** La farmacia no presta servicios de diagnóstico y no hay ningún documento sobre el tema. Pero el índice **nunca devuelve vacío**: siempre existe un vecino más cercano. Lo que decide que el sistema no invente es el umbral, no la búsqueda. | Los tres resultados por encima de 0,35 → `hay_respuesta: False` → *"no tengo esa información"*. | **Ningún resultado supera el umbral:**<br>1. DOC-011 · 0,3695 · descartado<br>2. DOC-018 · 0,3779 · descartado<br>3. DOC-010 · 0,3790 · descartado<br><br>Respuesta emitida:<br>*"No tengo esa información en mi base de conocimiento. Te derivo con un empleado de la farmacia."* | ✅ |
+| **3** | *"¿hacen análisis de sangre y electrocardiogramas en la farmacia?"* | **Prueba de estrés: consulta fuera del catálogo.** La farmacia no presta servicios de diagnóstico y no hay ningún documento sobre el tema. Pero el índice **nunca devuelve vacío**: siempre existe un vecino más cercano. Lo que decide que el sistema no invente es el umbral, no la búsqueda. | Los tres resultados por encima de 0,345 → `hay_respuesta: False` → *"no tengo esa información"*. | **Ningún resultado supera el umbral:**<br>1. DOC-011 · 0,3695 · descartado<br>2. DOC-018 · 0,3779 · descartado<br>3. DOC-010 · 0,3790 · descartado<br><br>Respuesta emitida:<br>*"No tengo esa información en mi base de conocimiento. Te derivo con un empleado de la farmacia."* | ✅ |
 
 ---
 
 ## Salida literal de la corrida
+
+> La primera línea, `upsert de 20 documentos: 23 -> 23 registros`, re-ingesta los 20 documentos canónicos (para partir del estado base si quedó corrido el evento de B.3) sobre una colección que ya tenía 23: los 3 extra son los que dejó el ETL de B.5 y el upsert no los toca.
 
 ```
 $ python vector_db.py --killer
@@ -40,7 +42,7 @@ KILLER QUERY 1 — Poder semántico: jerga sin ninguna palabra del documento
 ==============================================================================
 Consulta: "mi vieja tiene 80 años y toma pastillas para el corazón todos los días, ¿le sale algo o no paga nada?"
 where:    {"$and": [{"vigente": {"$eq": true}}, {"categoria": {"$eq": "cobertura"}}]}
-umbral:   distancia <= 0.35
+umbral:   distancia <= 0.345
   1. DOC-010  distancia=0.2929  [ACEPTADO]
      categoria=cobertura  vigente=True
      Los jubilados y pensionados afiliados al PAMI acceden al vademécum del instituto con cobertura preferencial y,...
@@ -60,7 +62,7 @@ exactamente lo que el cliente pregunta, así que la semántica cruda lo pone pri
 --- (a) SIN el filtro de vigencia ---
 Consulta: "el médico me hizo la receta en su papel con membrete, ¿sirve para el alprazolam? ¿me lo pueden enviar a domicilio?"
 where:    null
-umbral:   distancia <= 0.35
+umbral:   distancia <= 0.345
   1. DOC-020  distancia=0.2485  [ACEPTADO]
      categoria=normativa  vigente=False
      Régimen anterior de dispensa de psicotrópicos, derogado y fuera de vigencia. Bajo este régimen alcanzaba con u...
@@ -74,7 +76,7 @@ umbral:   distancia <= 0.35
 --- (b) CON el filtro de vigencia en el where ---
 Consulta: "el médico me hizo la receta en su papel con membrete, ¿sirve para el alprazolam? ¿me lo pueden enviar a domicilio?"
 where:    {"vigente": {"$eq": true}}
-umbral:   distancia <= 0.35
+umbral:   distancia <= 0.345
   1. DOC-013  distancia=0.2736  [ACEPTADO]
      categoria=normativa  vigente=True
      Los psicotrópicos y estupefacientes de las listas reguladas —clonazepam, alprazolam, zolpidem, metilfenidato y...
@@ -90,7 +92,7 @@ KILLER QUERY 3 — Prueba de estrés: consulta fuera del catálogo
 ==============================================================================
 Consulta: "¿hacen análisis de sangre y electrocardiogramas en la farmacia?"
 where:    {"vigente": {"$eq": true}}
-umbral:   distancia <= 0.35
+umbral:   distancia <= 0.345
   1. DOC-011  distancia=0.3695  [descartado por umbral]
      categoria=cobertura  vigente=True
      Los convenios con Swiss Medical, OMINT y Medifé funcionan bajo el mismo circuito de validación en línea y comp...

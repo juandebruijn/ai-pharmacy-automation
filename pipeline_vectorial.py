@@ -159,7 +159,10 @@ def main() -> int:
     if recuperado is not None:
         indice, ids = recuperado
         print(f"[read_index] Índice recargado desde disco: {indice.ntotal} vectores.")
-        print("             0 llamadas a la API, 0 tokens consumidos.\n")
+        # Lo que se ahorra es re-vectorizar la BASE. Las consultas de prueba se
+        # siguen embebiendo con RETRIEVAL_QUERY: eso no lo evita ninguna persistencia.
+        print(f"             0 documentos re-vectorizados (ahorro: los {indice.ntotal} vectores de la base).\n"
+              f"             Las {len(CONSULTAS_DE_PRUEBA)} consultas sí se embeben (RETRIEVAL_QUERY).\n")
     else:
         print("[build] --volatil: se construye en RAM y NO se persiste."
               if args.volatil else "[build] no hay índice en disco.")

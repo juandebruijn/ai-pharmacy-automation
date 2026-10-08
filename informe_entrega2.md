@@ -94,7 +94,7 @@ Las tres cuentas manuales coinciden con NumPy hasta el último decimal. Lo inter
 
 #### Reflexión sobre el umbral de aceptación
 
-Un ranking siempre devuelve un primero, incluso cuando ninguno sirve: el vecino más cercano existe aunque la consulta sea de otro planeta. Por eso el umbral no es un detalle de tuning, es **la única defensa contra la alucinación por proximidad**. En este ejercicio 2D un corte razonable estaría cerca de 0,85 de similitud (D2, con 0,6675, claramente no responde la consulta), pero el número que vale es el que medimos sobre embeddings reales: **distancia coseno ≤ 0,35**, calibrado en C.2 con 24 consultas. Si nada lo supera, el sistema **no** devuelve el más cercano: responde *"no tengo esa información"* y deriva a un humano.
+Un ranking siempre devuelve un primero, incluso cuando ninguno sirve: el vecino más cercano existe aunque la consulta sea de otro planeta. Por eso el umbral no es un detalle de tuning, es **la única defensa contra la alucinación por proximidad**. En este ejercicio 2D un corte razonable estaría cerca de 0,85 de similitud (D2, con 0,6675, claramente no responde la consulta), pero el número que vale es el que medimos sobre embeddings reales: **distancia coseno ≤ 0,345**, calibrado en C.2 con 66 consultas. Si nada lo supera, el sistema **no** devuelve el más cercano: responde *"no tengo esa información"* y deriva a un humano.
 
 ---
 
@@ -232,12 +232,13 @@ $ python pipeline_vectorial.py
 real    0m4.381s
 ```
 
-#### Paso 5 — proceso nuevo: se recarga de disco, **sin consumir tokens**
+#### Paso 5 — proceso nuevo: se recarga de disco, **sin re-vectorizar la base**
 
 ```
 $ python pipeline_vectorial.py
 [read_index] Índice recargado desde disco: 20 vectores.
-             0 llamadas a la API, 0 tokens consumidos.
+             0 documentos re-vectorizados (ahorro: los 20 vectores de la base).
+             Las 3 consultas sí se embeben (RETRIEVAL_QUERY).
 
 [1] "che, me lo pueden acercar en moto hasta el bajo de Vicente López?"
     1. DOC-002  similitud=0.7405  distancia=0.2595  (logistica)
@@ -253,7 +254,9 @@ $ ls -la indice_faiss/
 -rw-r--r--   414 farmacia_ids.json
 ```
 
-**La evidencia:** los scores del paso 5 (`0.7405 / 0.7044 / 0.6560`) son **idénticos** a los del paso 1, dígito por dígito, pero sin una sola llamada a la API. El índice recargado no es una aproximación del original: es el original. Y el tiempo baja de ~4,4 s a ~3,4 s — el segundo entero que se ahorra es la llamada de red que no se hizo.
+**La evidencia:** los scores del paso 5 (`0.7405 / 0.7044 / 0.6560`) son **idénticos** a los del paso 1, dígito por dígito, sin volver a vectorizar ninguno de los 20 documentos. El índice recargado no es una aproximación del original: es el original. Y el tiempo baja de ~4,4 s a ~3,4 s — el segundo entero que se ahorra es la vectorización de la base que no se hizo.
+
+> **Precisión sobre qué se ahorra.** La persistencia evita re-vectorizar los **documentos** (los 3.095 tokens de la base), no toda llamada a la API: las 3 consultas de prueba se siguen embebiendo con `task_type="RETRIEVAL_QUERY"` en cada corrida, porque una consulta nueva no puede estar en disco de antemano. Son ~30 tokens por consulta contra 3.095 por reconstrucción, y es un costo que existe con o sin persistencia.
 
 #### Reflexión
 
@@ -315,7 +318,7 @@ class EmbeddingFarmacia(GoogleGenaiEmbeddingFunction):
         return self._como_consulta(input)
 ```
 
-No es un adorno: una política de 900 caracteres y una pregunta de WhatsApp de diez palabras no son el mismo tipo de texto. Medimos las dos variantes sobre las mismas 24 consultas con las que calibramos el umbral en C.2:
+No es un adorno: una política de 900 caracteres y una pregunta de WhatsApp de diez palabras no son el mismo tipo de texto. Medimos las dos variantes sobre las 24 consultas de la primera calibración del umbral (C.2):
 
 | Cómo se vectoriza la consulta | Peor caso **dentro** del catálogo | Mejor caso **fuera** | Brecha |
 | :--- | ---: | ---: | ---: |
@@ -371,10 +374,11 @@ El cambio impacta de inmediato en la búsqueda: en la corrida de B.4, la consult
 
 ```python
 def buscar_farmacia(query_semantica: str, filtro_categoria: str | None = None,
-                    solo_vigentes: bool = True, n_resultados: int = 3) -> dict:
+                    solo_vigentes: bool = True, n_resultados: int = 3,
+                    sucursal: str | None = None, intencion: str | None = None) -> dict:
 ```
 
-Es la firma que pide el enunciado —`buscar_<dominio>(query_semantica, filtro_X, solo_activos, n_resultados)`— con `filtro_X` = `categoria` y `solo_activos` = `solo_vigentes`, que es el nombre del booleano de estado en nuestro esquema.
+Es la firma que pide el enunciado —`buscar_<dominio>(query_semantica, filtro_X, solo_activos, n_resultados)`— con `filtro_X` = `categoria` y `solo_activos` = `solo_vigentes`, que es el nombre del booleano de estado en nuestro esquema. Los dos parámetros opcionales del final, `sucursal` e `intencion`, son los dos datos que el orquestador ya tiene **antes** de buscar: el `sucursal_id` llega en el request de la API de la Entrega 1 y la intención la extrae `app.py`. Son los que enganchan esta búsqueda con la Matriz de Intenciones (ver C.1).
 
 El `where` se arma con operadores nativos y viaja **dentro** de la query:
 
@@ -384,6 +388,10 @@ if solo_vigentes:
     condiciones.append({"vigente": {"$eq": True}})
 if filtro_categoria:
     condiciones.append({"categoria": {"$eq": filtro_categoria}})
+if sucursal:
+    condiciones.append({"sucursal": {"$in": [sucursal, "TODAS"]}})
+if intencion:
+    condiciones.append({"intencion_relacionada": {"$eq": intencion}})
 
 # ChromaDB rechaza un $and de un solo elemento.
 if len(condiciones) > 1:
@@ -403,21 +411,35 @@ crudo = obtener_coleccion().query(
 
 **Sin post-filtering manual.** No hay ningún `if` de Python descartando resultados después de la query. Y no es una formalidad: si filtráramos a posteriori, el motor gastaría el top-K calculando similitud contra documentos que ya sabíamos que iban a descartarse y, peor, podríamos terminar con **menos de `n_resultados`** sin que el llamador se entere. El único `if` posterior es el del **umbral**, que no filtra por atributo sino que decide si hay respuesta o no (C.2) — y marca cada resultado en lugar de esconderlo.
 
-Ejemplo de corrida:
+Ejemplo de corrida, la misma consulta filtrando primero por categoría y después por sucursal + intención:
 
 ```
 $ python vector_db.py --buscar "me lo acercan hasta Olivos en el dia?" --categoria logistica
 
 Consulta: "me lo acercan hasta Olivos en el dia?"
 where:    {"$and": [{"vigente": {"$eq": true}}, {"categoria": {"$eq": "logistica"}}]}
-umbral:   distancia <= 0.35
+umbral:   distancia <= 0.345
   1. DOC-002  distancia=0.2705  [ACEPTADO]
-     categoria=logistica  vigente=True
-  2. DOC-004  distancia=0.3116  [ACEPTADO]
-     categoria=logistica  vigente=True
-  3. DOC-003  distancia=0.3150  [ACEPTADO]
-     categoria=logistica  vigente=True
+     categoria=logistica  sucursal=SUC-002  intencion=consulta_envio  vigente=True
+  2. DOC-003  distancia=0.3150  [ACEPTADO]
+     categoria=logistica  sucursal=SUC-003  intencion=consulta_envio  vigente=True
+  3. DOC-004  distancia=0.3164  [ACEPTADO]
+     categoria=logistica  sucursal=TODAS  intencion=consulta_envio  vigente=True
+
+$ python vector_db.py --buscar "me lo acercan hasta Olivos en el dia?" --sucursal SUC-002 --intencion consulta_envio
+
+Consulta: "me lo acercan hasta Olivos en el dia?"
+where:    {"$and": [{"vigente": {"$eq": true}}, {"sucursal": {"$in": ["SUC-002", "TODAS"]}}, {"intencion_relacionada": {"$eq": "consulta_envio"}}]}
+umbral:   distancia <= 0.345
+  1. DOC-002  distancia=0.2705  [ACEPTADO]
+     categoria=logistica  sucursal=SUC-002  intencion=consulta_envio  vigente=True
+  2. DOC-004  distancia=0.3164  [ACEPTADO]
+     categoria=logistica  sucursal=TODAS  intencion=consulta_envio  vigente=True
+  3. DOC-005  distancia=0.3509  [descartado por umbral]
+     categoria=logistica  sucursal=TODAS  intencion=consulta_envio  vigente=True
 ```
+
+La diferencia es el punto de la Regla del Arquitecto: con el filtro de categoría solo, **DOC-003 —la zona de reparto de la sucursal Oeste— queda en el puesto 2 y aceptada** para un cliente que escribe a la sucursal Norte. Semánticamente es casi el mismo documento ("zona de reparto"), y ningún embedding los va a separar. Con `{"sucursal": {"$in": ["SUC-002", "TODAS"]}}` deja de ser candidata: quedan la política de la sucursal consultada y las de red.
 
 La función devuelve un `dict` con los resultados, el `where` efectivamente aplicado y una bandera `hay_respuesta`. Ese dict es el contrato con el orquestador RAG de la Unidad 4 (ver C.3).
 
@@ -515,26 +537,57 @@ Reproducibles con `python vector_db.py --killer`.
 | Elemento de la Entrega 1 | Cómo se implementa en la Entrega 2 |
 | :--- | :--- |
 | **Columna "Base de Conocimiento" del PEAS** (A.3), que declaraba una *"base vectorial (RAG) con políticas de entrega a domicilio, zonas de cobertura, medios de pago y requisitos normativos para medicamentos bajo receta"* | ← Es literalmente la colección `politicas_farmacia`: `logistica` (DOC-001…006) son las políticas de entrega y las zonas, `pagos` (DOC-007, 008) los medios de pago, `cobertura` (DOC-009…012) los convenios, `normativa` (DOC-013…016, 020) los requisitos para medicamentos bajo receta. El PEAS listaba las cuatro cosas; las cuatro están, una categoría por cada una. |
-| **Campos de filtrado de la Matriz de Intenciones** (B.3) | ← Son los metadatos. `sucursal_id`, que en la Entrega 1 era campo obligatorio del contrato de la API porque *"el stock y los precios son por sucursal"*, es ahora el metadato `sucursal` con el operador `$in`. Y las **seis etiquetas cerradas** del contrato de intenciones (`consulta_stock`, `consulta_precio_cobertura`, `consulta_envio`, `validar_receta`, `crear_pedido`, `fuera_de_alcance`) son el dominio de valores de `intencion_relacionada`: el mismo conjunto que el `Literal` de `schemas.py` y que el `ENUM` de `interacciones.intencion` en el esquema MySQL de B.5.b. Agregar una intención sigue obligando a tocar los cuatro lugares a la vez, que es lo que queremos. |
-| **Parámetros que el LLM extraía del `texto_libre`** | ← Ahora se resuelven en el `where`. El parámetro `obra_social` que `schemas.py` validaba contra la lista de convenios vigentes se convierte en `{"categoria": {"$eq": "cobertura"}}` + `{"vigente": {"$eq": True}}`; el `sucursal_id` del request se convierte en `{"sucursal": {"$in": [sucursal, "TODAS"]}}`; el `requiere_envio` que el LLM marcaba en `true`/`false` selecciona la categoría `logistica`. El LLM sigue haciendo lo mismo que en la Entrega 1 —convertir texto libre en estructura—, pero esa estructura ya no alimenta solo un `SELECT`: alimenta el filtro duro de la búsqueda vectorial. |
+| **Campos de filtrado de la Matriz de Intenciones** (B.3) | ← Son los metadatos. `sucursal_id`, que en la Entrega 1 era campo obligatorio del contrato de la API porque *"el stock y los precios son por sucursal"*, es ahora el metadato `sucursal`, filtrado con `$in` por el parámetro `sucursal` de `buscar_farmacia()` (corrida en B.4). Y las **seis etiquetas cerradas** del contrato de intenciones (`consulta_stock`, `consulta_precio_cobertura`, `consulta_envio`, `validar_receta`, `crear_pedido`, `fuera_de_alcance`) son el dominio de valores de `intencion_relacionada`, que `buscar_farmacia()` filtra con `$eq` a través del parámetro `intencion`: el mismo conjunto que el `Literal` de `schemas.py` y que el `ENUM` de `interacciones.intencion` en el esquema MySQL de B.5.b. Agregar una intención sigue obligando a tocar los cuatro lugares a la vez, que es lo que queremos. |
+| **Parámetros que el LLM extraía del `texto_libre`** | ← Ahora se resuelven en el `where`. El parámetro `obra_social` que `schemas.py` validaba contra la lista de convenios vigentes se convierte en `{"categoria": {"$eq": "cobertura"}}` + `{"vigente": {"$eq": True}}`; el `sucursal_id` del request se convierte en `{"sucursal": {"$in": [sucursal, "TODAS"]}}` y la `intencion` extraída en `{"intencion_relacionada": {"$eq": intencion}}` —los dos implementados en `buscar_farmacia()` y expuestos en la CLI como `--sucursal` e `--intencion`—; el `requiere_envio` que el LLM marcaba en `true`/`false` selecciona la categoría `logistica` (`--categoria`). Lo que **todavía no existe** es el código que toma la salida de `app.py` y llena esos parámetros automáticamente: eso es el orquestador de C.3. El LLM sigue haciendo lo mismo que en la Entrega 1 —convertir texto libre en estructura—, pero esa estructura ya no alimenta solo un `SELECT`: alimenta el filtro duro de la búsqueda vectorial. |
 
 El principio de B.4 de la Entrega 1 se mantiene intacto: **el LLM aparece únicamente en los dos extremos del flujo, nunca en el medio.** La búsqueda híbrida es determinista de punta a punta — el embedding es una función, el `where` es un filtro y el umbral es una comparación numérica. Ningún dato de esta entrega lo decide un modelo.
 
 ### C.2 — El umbral de aceptación
 
-**Threshold definido: distancia coseno ≤ 0,35** (equivalente a similitud ≥ 0,65), en `vector_db.UMBRAL_DISTANCIA`.
+**Threshold definido: distancia coseno ≤ 0,345** (equivalente a similitud ≥ 0,655), en `vector_db.UMBRAL_DISTANCIA`. Reproducible con `python vector_db.py --calibrar`.
 
-No está elegido a ojo. Medimos el top-1 de **24 consultas**: 14 que sí tienen respuesta en la base y 10 que no.
+#### Primera calibración: 24 consultas y una brecha frágil
 
-| | Peor caso | |
-| :--- | ---: | :--- |
-| Consultas **dentro** del catálogo (14) | **0,3400** | la peor: *"puedo abonar escaneando con la billetera del celular?"* → DOC-007 |
-| Consultas **fuera** del catálogo (10) | **0,3631** | la mejor: *"hacen análisis de sangre y electrocardiogramas?"* → DOC-011 |
-| **Brecha** | **0,0231** | punto medio: 0,3516 → se adopta **0,35** |
+La primera versión del umbral salió de medir el top-1 de 24 consultas (14 con respuesta en la base, 10 sin respuesta). La peor consulta legítima quedó a 0,3400 y la mejor fuera de catálogo a 0,3631: una brecha de **0,0231**, con 0,35 en el medio. Una brecha así de chica, medida con tan pocas consultas, puede ser un accidente de la muestra, así que la volvimos a medir con un lote más grande.
 
-Las 14 consultas legítimas caen entre 0,2445 y 0,3400; las 10 fuera de catálogo, entre 0,3631 y 0,4285. La separación existe pero **es estrecha**, y conviene decirlo: con `gemini-embedding-001` el espacio está comprimido y no hay un abismo cómodo entre "responde" y "no responde". Eso tiene dos consecuencias prácticas. Primera, el umbral hay que **recalibrarlo si se cambia el modelo de embeddings**: 0,35 vale para este modelo y esta base, no es una constante universal. Segunda, en una base que crezca a cientos de documentos habría que revalidarlo con un lote de consultas más grande, y probablemente complementarlo con un re-ranker.
+#### Recalibración: 66 consultas
 
-Vale recordar de dónde salió esa brecha. Con la función de embedding de ChromaDB tal como viene —que vectoriza la consulta igual que el documento— la misma medición da **−0,0102**: la brecha se da vuelta y ningún umbral separa nada (ver B.1). Que el umbral de esta sección exista es consecuencia directa de vectorizar las consultas con `RETRIEVAL_QUERY`.
+`calibrar_umbral()` (en `vector_db.py`) toma el top-1 de **41 consultas con respuesta** —al menos dos por documento vigente, escritas como pregunta un cliente por WhatsApp y sin repetir el vocabulario del documento— y **25 sin respuesta**. De estas últimas, 16 son *vecinas* del dominio (cosas que una farmacia podría hacer pero esta no documenta: tomar la presión, inyectables, recetas magistrales, el CUIT para facturar) y 9 son ajenas (fútbol, dólar, wifi). Las vecinas son las que de verdad estresan el corte.
+
+| | Rango de distancias (top-1) |
+| :--- | :--- |
+| Consultas **dentro** del catálogo (41) | 0,1904 – **0,3400** |
+| Consultas **fuera** del catálogo (25) | **0,3198** – 0,4820 |
+| **Brecha** | **−0,0202: los grupos se solapan** |
+
+**La brecha de la primera calibración no se sostiene.** Hay consultas sin respuesta que caen más cerca que algunas legítimas: *"¿hacen envíos al interior del país por correo?"* queda a 0,3198 de DOC-001 (reparto de la sucursal Centro) y *"¿cuál es el CUIT de la farmacia para facturar?"* a 0,3275 de DOC-011 (convenios de prepagas). Con este modelo de embeddings **no existe un umbral que separe perfecto**, así que la pregunta cambia: ya no es "dónde está el corte que separa", sino "qué corte se equivoca menos".
+
+#### Barrido de umbrales
+
+| Umbral | Falsos rechazos | Falsas aceptaciones | Errores |
+| :---: | :---: | :---: | :---: |
+| 0,300 | 4 | 0 | 4 |
+| 0,320 | 2 | 1 | 3 |
+| 0,330 | 1 | 2 | 3 |
+| **0,340** | **0** | **2** | **2** |
+| **0,345** | **0** | **2** | **2** |
+| 0,350 *(umbral anterior)* | 0 | 3 | 3 |
+| 0,360 | 0 | 4 | 4 |
+| 0,370 | 0 | 8 | 8 |
+
+*Falso rechazo:* una consulta con respuesta que el sistema deriva a un empleado. *Falsa aceptación:* una consulta sin respuesta a la que el sistema le pasa al LLM un documento que no corresponde.
+
+El mínimo es **2 errores sobre 66 consultas (97 % de acierto)** y se alcanza en todo el tramo 0,340–0,345. Elegimos **0,345**, el centro del tramo, porque 0,340 cae exactamente sobre una consulta válida (*"puedo abonar escaneando con la billetera del celular?"*, a 0,3400): con la variación de milésimas que mete la API entre corridas, un umbral pegado a un dato cambia de veredicto de una vez a otra. El umbral anterior, 0,35, comete un error más: acepta *"¿me pueden aplicar una inyección intramuscular?"* (0,3489).
+
+Los dos errores que quedan son las dos falsas aceptaciones de arriba (envíos al interior y CUIT). No los "arreglamos" bajando más el umbral, porque eso empieza a rechazar consultas legítimas (a 0,330 ya se pierde *"qué tengo que llevar para usar Medifé?"*). Para quitarlos hace falta algo más que la distancia coseno.
+
+#### Limitaciones y próximos pasos
+
+* **El umbral depende del modelo y de la base.** 0,345 vale para `gemini-embedding-001` y estos 23 documentos, no es una constante universal. Si cambia cualquiera de los dos, se vuelve a correr `--calibrar`.
+* **El solapamiento lo resuelve un re-ranker, no un umbral más fino.** Un cross-encoder sobre el top-k evalúa consulta y documento *juntos* y distingue "reparto en Capital" de "envío al interior" mucho mejor que la distancia entre dos vectores calculados por separado. Lo dejamos para la Entrega 3, cuando entra el orquestador: hoy agregarlo implicaría meter un LLM en el medio del flujo (contradice C.1) o sumar PyTorch como dependencia solo para esto.
+* **Ante la duda, el error barato es el correcto:** en este dominio conviene derivar de más a un empleado antes que pasarle al LLM contexto que no responde la pregunta.
+
+Que haya un umbral utilizable se debe a vectorizar las consultas con `RETRIEVAL_QUERY`. Con la función de embedding de ChromaDB tal como viene, que vectoriza la consulta igual que el documento, la primera calibración ya daba una brecha de **−0,0102** (ver B.1).
 
 **Qué responde el sistema cuando nada supera el umbral.** `buscar_farmacia()` devuelve `hay_respuesta: False` y la respuesta literal:
 

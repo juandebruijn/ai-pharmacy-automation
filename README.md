@@ -120,7 +120,9 @@ python vector_db.py --evento                        # B.3: evento en caliente + 
 python vector_db.py --buscar "me llega hoy?"        # B.4: búsqueda híbrida
 python vector_db.py --buscar "..." --categoria logistica --n 5
 python vector_db.py --buscar "..." --incluir-no-vigentes
+python vector_db.py --buscar "..." --sucursal SUC-002 --intencion consulta_envio
 python vector_db.py --killer                        # B.6: las tres killer queries
+python vector_db.py --calibrar                      # C.2: calibración del umbral
 ```
 
 `--ingesta` va primero: los demás comandos consultan la colección.
