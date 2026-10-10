@@ -8,3 +8,8 @@ google-genai>=2.22.0
 numpy>=2.5.3
 faiss-cpu>=1.15.0
 chromadb>=1.5.9
+
+# Entrega 3 - pipeline RAG con LCEL, observabilidad y evaluacion
+langchain-core>=1.6.9
+langchain-chroma>=1.1.0
+langchain-google-genai>=4.4.0
