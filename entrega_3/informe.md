@@ -6,7 +6,8 @@ La Entrega 2 dejó una base de conocimiento que **encuentra** el documento corre
 
 | Archivo | Contenido |
 | :--- | :--- |
-| `rag_pipeline.py` | Partes A y B: retriever sobre la base de la Entrega 2, chain LCEL y chunking |
+| `rag_pipeline.py` | Partes A y B: retriever sobre la base de la Entrega 2, chain LCEL, chunking, reranking y traza |
+| `langsmith_trace.png` | Captura de la traza de B.4 ([enlace público](https://smith.langchain.com/public/edf36d7f-0d27-499d-b769-322d5c41e39f/r)) |
 
 > **Sobre el modelo.** La Entrega 1 usó `gemini-3.6-flash`, pero en la capa gratuita ese modelo da **20 requests por día** y RAGAS solo necesita cientos. El RAG genera con `gemini-3.1-flash-lite`. Los embeddings **no cambian** (`gemini-embedding-001`, 768 dimensiones): la base es exactamente la de la Entrega 2.
 
@@ -211,3 +212,78 @@ Así quedó partido DOC-003:
 El chunking hizo lo que promete: las distancias bajaron y DOC-003 entró al top-3. Pero entró **el chunk equivocado**. `DOC-003#1` arranca con la oración del solapamiento, que habla de horarios de corte y por eso se parece a la consulta, y no menciona ni Ramos Mejía ni los sábados. El chunk que responde, `DOC-003#0`, quedó octavo. El resultado empeoró: ahora el sistema escapa entero, porque ya no tiene ni el encargo a droguería (DOC-019 cayó al quinto puesto).
 
 La lección es que achicar el chunk hace la representación más fina, pero el ranking por distancia sigue decidiendo con un margen de centésimas. Con 46 candidatos más parecidos entre sí, el ruido compite más de cerca. El chunking es condición necesaria, pero no suficiente: hace falta mirar más candidatos y decidir con otro criterio. Eso es B.3.
+
+### B.3 — Reranking con el LLM como juez
+
+```python
+def construir_rag_avanzado():
+    return (
+        RunnableParallel(recuperados=crear_retriever(COLECCION_CHUNKS, K_AVANZADO),  # k=8
+                         pregunta=RunnablePassthrough())
+        .assign(documentos=crear_reranker())       # el LLM puntúa y filtra
+        .assign(respuesta=cadena_generacion())     # misma generación que el básico
+    )
+```
+
+1. **Recuperación amplia:** k=8 sobre los chunks, con el mismo filtro de vigencia.
+2. **Juez:** una sola llamada al LLM recibe los 8 fragmentos numerados y devuelve un puntaje de 0 a 10 por fragmento, con *structured output* (`Juicio`, un modelo Pydantic). La escala está anclada en el prompt: **10** = contiene el dato que responde, **6–9** = aporta una parte necesaria o una condición que cambia la respuesta, **1–5** = mismo tema pero no responde, **0** = sin relación.
+3. **Filtro:** pasan los que tienen puntaje ≥ 6, ordenados por puntaje, con un máximo de 4.
+4. **Generación:** el mismo prompt con las mismas reglas que el básico. Solo cambia el contexto.
+
+**El juez reemplaza al umbral fijo de la Entrega 2.** En C.2 de la Entrega 2 vimos que no existe una distancia que separe perfecto lo que la base sabe de lo que no (los grupos se solapan) y dejamos el re-ranker planteado para esta entrega. Acá el corte no es *"distancia ≤ 0,345"* sino *"el juez dice que sirve"*. Si el juez no aprueba ningún chunk, el contexto llega vacío y el prompt activa la frase de escape.
+
+**Resultado sobre la consulta de B.1:**
+
+```text
+Recuperados (8): DOC-004#1, DOC-001#1, DOC-003#1, DOC-002#1, DOC-019#0, DOC-004#0, DOC-105#1, DOC-003#0
+Seleccionados por el juez (2): DOC-003#0 (10/10), DOC-019#0 (8/10)
+Respuesta: Si el producto no tiene stock, podemos encargarlo a la droguería con un plazo de
+cuarenta y ocho a setenta y dos horas hábiles [DOC-019]. Sin embargo, la sucursal Oeste no
+realiza repartos los días sábados, ya que el servicio funciona únicamente de lunes a viernes [DOC-003].
+```
+
+`DOC-003#0` entró **último** al k=8 y el juez lo puso **primero**, con 10/10. Junto con `DOC-019#0`, son exactamente los dos chunks que responden la consulta. Los otros seis quedaron afuera, incluido `DOC-004#1`, el que encabezaba el ranking vectorial y era el más peligroso (la regla de los sábados de toda la red). La respuesta contesta las dos partes y no promete el reparto del sábado.
+
+Ninguna de las dos técnicas alcanzaba sola: el chunking aisló la oración del sábado en un fragmento propio, y el k=8 con el juez la rescató del octavo puesto.
+
+### B.4 — Captura de traza en LangSmith
+
+**Configuración.** Tres variables en el `.env`, sin cambiar el código: LangChain las lee y traza cada `Runnable` automáticamente.
+
+```env
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGSMITH_TRACING=true
+LANGSMITH_PROJECT=ai-pharmacy-automation
+```
+
+`python entrega_3/rag_pipeline.py --traza` corre el RAG avanzado sobre la consulta de B.1, espera a que LangSmith cierre la traza y la lee por la API:
+
+```text
+[B.4] Proyecto LangSmith: ai-pharmacy-automation
+      Enlace público: https://smith.langchain.com/public/edf36d7f-0d27-499d-b769-322d5c41e39f/r
+      Tokens totales: 1689 (entrada 1419 · salida 270)
+      rag_avanzado                         5.36 s  tokens=1689
+        RunnableParallel<recuperados,pregunta>   1.22 s
+          VectorStoreRetriever                 1.22 s
+        RunnableAssign<documentos>           2.44 s  tokens=1034
+            rerank_llm_juez                      2.44 s  tokens=1034
+                ChatGoogleGenerativeAI               2.44 s  tokens=1034
+                PydanticOutputParser                 0.00 s
+        RunnableAssign<respuesta>            1.65 s  tokens=655
+              ChatGoogleGenerativeAI               1.64 s  tokens=655
+              StrOutputParser                      0.00 s
+```
+
+![Traza del RAG avanzado en LangSmith](langsmith_trace.png)
+
+**Lo que muestra la traza:**
+
+| Paso | Tiempo | Tokens | Qué se ve en LangSmith |
+| :--- | :---: | :---: | :--- |
+| `VectorStoreRetriever` | 1,22 s | — | Los 8 chunks recuperados (el embedding de la consulta es una llamada a la API, no un LLM) |
+| `rerank_llm_juez` | 2,44 s | 1.034 | Los 8 fragmentos en el prompt del juez y el `Juicio` con los 8 puntajes |
+| Generación (`map:key:respuesta`) | 1,65 s | 655 | El prompt final, con solo 2 chunks como contexto |
+| **Total** | **5,36 s** | **1.689** | |
+
+* **Recuperados vs. seleccionados.** En el *output* del run raíz, `recuperados` tiene **8 items** y `documentos` tiene **2** (`DOC-003#0` y `DOC-019#0`). La diferencia es exactamente lo que filtró el juez.
+* **El costo del reranking.** El juez es el paso más caro: **46 % del tiempo** y **61 % de los tokens**, porque lee 8 fragmentos para devolver 8 números. A cambio, la generación recibe 2 chunks en vez de 8, y la respuesta es la correcta. En producción, la palanca de costo es achicar el k o pasar a un cross-encoder local, que no consume tokens.
