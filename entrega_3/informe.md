@@ -6,7 +6,7 @@ La Entrega 2 dejó una base de conocimiento que **encuentra** el documento corre
 
 | Archivo | Contenido |
 | :--- | :--- |
-| `rag_pipeline.py` | Parte A: retriever sobre la base de la Entrega 2, chain LCEL, matriz de resiliencia y trazabilidad |
+| `rag_pipeline.py` | Partes A y B: retriever sobre la base de la Entrega 2, chain LCEL y chunking |
 
 > **Sobre el modelo.** La Entrega 1 usó `gemini-3.6-flash`, pero en la capa gratuita ese modelo da **20 requests por día** y RAGAS solo necesita cientos. El RAG genera con `gemini-3.1-flash-lite`. Los embeddings **no cambian** (`gemini-embedding-001`, 768 dimensiones): la base es exactamente la de la Entrega 2.
 
@@ -121,3 +121,93 @@ Salida de `python entrega_3/rag_pipeline.py --matriz` (RAG básico, k=3):
 * En las dos consultas la cita del texto (`[DOC-002]`, `[DOC-013]`) coincide con el documento que efectivamente tiene la respuesta, y los metadatos confirman que es el correcto: DOC-002 es de la **sucursal SUC-002**, la que cubre Olivos.
 * En la segunda consulta, **DOC-020 no aparece**, aunque es el documento que mejor describe *"receta común"* para clonazepam (es el régimen derogado). La columna `vigente` muestra por qué: todas las fuentes tienen `vigente=True` porque el filtro está en el retriever.
 * De las tres fuentes, el modelo usó **una sola** en cada caso. Las otras dos llegaron al prompt sin aportar nada: son ruido. Con documentos de 600 a 770 caracteres, eso es casi el 70 % del contexto. Es el punto de partida de la Parte B.
+
+---
+
+## Parte B — RAG avanzado: chunking y reranking
+
+### B.1 — Identificación de la falla
+
+**La consulta:** *"Si no tienen el remedio, ¿me lo encargan y me lo mandan a Ramos Mejía el sábado?"*
+
+Tiene dos partes y cada una vive en un documento distinto: el encargo a droguería (DOC-019) y el reparto en Ramos Mejía, que cubre la sucursal Oeste (DOC-003), con una oración decisiva: *"no hay reparto los sábados, domingos ni feriados"*.
+
+Salida de `python entrega_3/rag_pipeline.py --falla`:
+
+```text
+Fuentes  : DOC-004, DOC-019, DOC-001
+Respuesta: Si un producto no tiene stock, podemos encargarlo a la droguería con un plazo de
+cuarenta y ocho a setenta y dos horas hábiles [DOC-019]. Sin embargo, no poseo información
+sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.
+
+Ranking de la colección 'politicas_farmacia' (distancia coseno, top-8):
+  1. DOC-004  0.2509  La ventana de corte del reparto define si un pedido llega en...
+  2. DOC-019  0.2809  Cuando un producto figura sin stock en la sucursal consultad...
+  3. DOC-001  0.2841  La sucursal Centro despacha pedidos a domicilio dentro del m...   ---- corte k=3 ----
+  4. DOC-003  0.2967  La sucursal Oeste reparte en el primer cordón del oeste bona...   <- tiene la respuesta
+  5. DOC-005  0.3063  El retiro en sucursal permite al cliente reservar el product...
+```
+
+**Qué falla.** La mitad de la pregunta queda sin responder y el sistema deriva a un humano algo que la base sí sabe.
+
+Y el riesgo de negocio es peor que una derivación innecesaria. El contexto que sí llegó al LLM tiene **DOC-004**, que dice que los sábados se reparte si el pedido entra *"antes de las doce del mediodía"*. Es una regla de red que la sucursal Oeste no cumple. Con un prompt menos estricto, la respuesta natural habría sido *"sí, si lo confirmás antes de las 12"*: una promesa incumplible.
+
+**Causa técnica: ruido en el contexto.** DOC-003 está cuarto, a **0,0126** del corte. Lo desplaza DOC-001, la sucursal Centro, que no reparte en el conurbano: entra al top-3 solo porque habla de *"despachar pedidos a domicilio"*. Las tres plazas del contexto se reparten así:
+
+| Puesto | Documento | ¿Sirve? |
+| :---: | :--- | :--- |
+| 1 | DOC-004 — ventana de corte de toda la red | No: sobre los sábados, contradice la regla de la sucursal que corresponde |
+| 2 | DOC-019 — faltantes y encargo a droguería | Sí: responde la primera mitad |
+| 3 | DOC-001 — reparto de la sucursal Centro | No: otra sucursal, otra zona |
+
+Dos de tres documentos son ruido. El problema de fondo es que **cada vector representa un documento entero**: DOC-003 habla de zonas, de horarios, de la heladera homologada y de las localidades excluidas, y su vector es un promedio de todo eso. La oración del sábado pesa poco frente a un DOC-004 cuyo tema completo es *"cuándo llega mi pedido"*. Con k=3 fijo, el documento correcto queda afuera por centésimas.
+
+### B.2 — Chunking con solapamiento
+
+`python entrega_3/rag_pipeline.py --reindexar` lee los 23 documentos de la colección de la Entrega 2 y los parte con `RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=100)`. El resultado va a una colección **nueva**, `politicas_farmacia_chunks`, en el mismo `chroma_db/`: la original queda intacta porque el RAG básico la sigue usando y la Parte C compara los dos.
+
+```text
+[B.2] 'politicas_farmacia' -> 'politicas_farmacia_chunks' (chunk_size=500, chunk_overlap=100)
+      antes : 23 registros (un documento entero = un vector)
+      ahora : 46 chunks (2.00 por documento)
+      largo de los chunks: mín 108 · prom 336 · máx 493 caracteres
+```
+
+| | Versión anterior (Entrega 2) | Con chunking 500/100 |
+| :--- | :---: | :---: |
+| Registros en ChromaDB | 23 | **46** |
+| Caracteres por registro | 565 – 768 | 108 – 493 (prom. 336) |
+| Metadatos | los del documento | los del documento + `doc_id` + `chunk` |
+
+**Dos decisiones del splitter.**
+
+* **Separadores por oración** (`". "`, `"; "`, `", "` antes que `" "`). Todos los documentos tienen entre 565 y 768 caracteres, así que cada uno se parte en exactamente dos. El corte cae en el último punto antes de los 500 caracteres, y el solapamiento repite la oración del borde al principio del chunk siguiente. Ninguna oración queda partida al medio.
+* **Los metadatos se heredan enteros**, más `doc_id` y el número de chunk. Sin eso se perdían el filtro de vigencia y la trazabilidad de A.4. Gracias al `doc_id`, el modelo sigue citando `[DOC-003]` aunque el fragmento sea `DOC-003#0`.
+
+**¿Resuelve la falla de B.1? No, sola no.** Mismo k=3, sobre la colección nueva:
+
+```text
+Fuentes  : DOC-004, DOC-001, DOC-003
+Respuesta: No poseo información sobre eso en las políticas de la farmacia. Te derivo con un
+empleado de la sucursal.
+
+Ranking de la colección 'politicas_farmacia_chunks' (top-8):
+  1. DOC-004#1  0.2287  Un pedido confirmado a las cuatro y cuarto de la tarde ...
+  2. DOC-001#1  0.2694  No se despacha fuera de la General Paz desde esta sucur...
+  3. DOC-003#1  0.2894  Los pedidos que entran después del horario de corte se ...   <- mismo documento, sin la regla del sábado   ---- corte k=3 ----
+  4. DOC-002#1  0.2901  El reparto se terceriza con una empresa de mensajería q...
+  5. DOC-019#0  0.2956  Cuando un producto figura sin stock en la sucursal cons...
+  ...
+  8. DOC-003#0  0.2998  La sucursal Oeste reparte en el primer cordón del oeste...   <- tiene la respuesta
+```
+
+Así quedó partido DOC-003:
+
+| Chunk | Contenido |
+| :--- | :--- |
+| `DOC-003#0` | *"La sucursal Oeste reparte en el primer cordón del oeste bonaerense: **Ramos Mejía**, Haedo, Morón [...]. El servicio funciona de lunes a viernes con una única salida diaria a las quince horas y **no hay reparto los sábados**, domingos ni feriados. Los pedidos que entran después del horario de corte se despachan al día hábil siguiente."* |
+| `DOC-003#1` | *"Los pedidos que entran después del horario de corte se despachan al día hábil siguiente. Esta sucursal es además el punto de entrega de los productos de cadena de frío [...]. Las entregas a Merlo, Moreno e Ituzaingó no están habilitadas."* |
+
+El chunking hizo lo que promete: las distancias bajaron y DOC-003 entró al top-3. Pero entró **el chunk equivocado**. `DOC-003#1` arranca con la oración del solapamiento, que habla de horarios de corte y por eso se parece a la consulta, y no menciona ni Ramos Mejía ni los sábados. El chunk que responde, `DOC-003#0`, quedó octavo. El resultado empeoró: ahora el sistema escapa entero, porque ya no tiene ni el encargo a droguería (DOC-019 cayó al quinto puesto).
+
+La lección es que achicar el chunk hace la representación más fina, pero el ranking por distancia sigue decidiendo con un margen de centésimas. Con 46 candidatos más parecidos entre sí, el ruido compite más de cerca. El chunking es condición necesaria, pero no suficiente: hace falta mirar más candidatos y decidir con otro criterio. Eso es B.3.
