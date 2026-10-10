@@ -1,0 +1,250 @@
+[
+  {
+    "id": "simple-01",
+    "tipo": "simple",
+    "docs": [
+      "DOC-007"
+    ],
+    "pregunta": "¿Aceptan cheques o dólares como forma de pago?",
+    "ground_truth": "No. No se aceptan cheques ni pagos en moneda extranjera. Los medios aceptados son transferencia bancaria por CBU o alias, tarjetas de crédito y débito, billeteras virtuales con código QR y efectivo solo contra entrega.",
+    "respuesta": "No aceptamos cheques ni pagos en moneda extranjera en ninguna de nuestras sucursales [DOC-007]. Los medios de pago habilitados son transferencia bancaria, tarjetas de crédito y débito, billeteras virtuales con QR y efectivo contra entrega [DOC-007].",
+    "fuentes": [
+      "DOC-007",
+      "DOC-011",
+      "DOC-009"
+    ],
+    "contextos": [
+      "Los medios de pago aceptados en el canal digital son transferencia bancaria por CBU o alias, tarjetas de crédito y débito de todas las marcas procesadas por la pasarela, billeteras virtuales con código QR y efectivo únicamente contra entrega en la puerta o en el mostrador. No se aceptan cheques, ni pagos en moneda extranjera, ni pagos fraccionados entre dos medios distintos en la misma operación. El pedido se considera confirmado recién cuando la acreditación del pago impacta en el sistema: una captura de pantalla de la transferencia no alcanza para liberar el despacho, porque la reserva de stock se hace contra la acreditación real y no contra el comprobante enviado por el cliente.",
+      "Los convenios con Swiss Medical, OMINT y Medifé funcionan bajo el mismo circuito de validación en línea y comparten la misma exigencia documental: credencial vigente, receta con diagnóstico y firma del profesional, y coincidencia exacta entre el titular de la receta y el afiliado. Las tres prepagas cubren los medicamentos de venta bajo receta según el plan contratado y dejan fuera los productos de perfumería, suplementos dietarios y accesorios, que siempre se cobran a precio de lista. Los planes corporativos pueden tener un vademécum restringido distinto del plan individual, por lo que la cobertura se consulta siempre contra el padrón y nunca se estima a partir del nombre de la prepaga.",
+      "El convenio con OSDE cubre a los afiliados de todos los planes con un porcentaje de descuento que varía según el tipo de medicamento: los de uso ambulatorio tienen la cobertura general del plan, mientras que los tratamientos crónicos declarados y los medicamentos del programa de enfermedades prolongadas llegan a una cobertura ampliada. Para liquidar el descuento hace falta la credencial digital o el número de afiliado y una receta vigente a nombre del titular. La validación se hace en línea contra el sistema de la obra social en el momento de la venta: si el afiliado figura con la cuota impaga o el plan dado de baja, la cobertura se rechaza y la venta se cierra como particular, a precio de lista."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 0.7142857142857143,
+    "answer_relevancy": 0.7416241078033489,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "simple-02",
+    "tipo": "simple",
+    "docs": [
+      "DOC-004"
+    ],
+    "pregunta": "¿Hasta qué hora tengo que confirmar el pedido un día de semana para que me llegue en el día?",
+    "ground_truth": "De lunes a viernes el pedido tiene que estar pagado y con la receta validada antes de las dieciséis horas para salir en la última ronda de reparto; si se confirma después, pasa a la jornada siguiente.",
+    "respuesta": "Para que un pedido llegue en el día, debe estar pagado y con la receta validada antes de las dieciséis horas de lunes a viernes [DOC-004]. Tené en cuenta que, si el pedido se confirma después de ese horario, no entrará en el reparto de ese día [DOC-004].",
+    "fuentes": [
+      "DOC-004",
+      "DOC-001",
+      "DOC-003"
+    ],
+    "contextos": [
+      "La ventana de corte del reparto define si un pedido llega en el día o pasa a la jornada siguiente. Para que una compra salga con la última ronda de reparto tiene que estar pagada y con la receta validada antes de las dieciséis horas de lunes a viernes y antes de las doce del mediodía los sábados. Un pedido confirmado a las cuatro y cuarto de la tarde no entra en el reparto de ese día, aunque el cliente insista o marque el pedido como urgente: el sistema nunca promete una entrega para hoy fuera de esa ventana, porque una promesa incumplida en un medicamento genera más daño que una demora anunciada. Los domingos y feriados no hay reparto en ninguna sucursal de la red.",
+      "La sucursal Centro despacha pedidos a domicilio dentro del microcentro porteño y los barrios linderos: San Nicolás, Monserrat, Retiro, Recoleta, Balvanera y Congreso. El reparto lo hace un cadete propio en moto, con dos salidas diarias, una al mediodía y otra a media tarde. El envío es sin cargo cuando la compra supera el monto mínimo vigente; por debajo de ese monto se cobra una tarifa fija de mensajería que el sistema informa antes de confirmar. No se despacha fuera de la General Paz desde esta sucursal: si el cliente pide una entrega en el conurbano, la operación se deriva a la sucursal que cubre esa zona. Los pedidos que incluyen medicamentos bajo receta solo salen a reparto una vez que el farmacéutico validó la imagen de la receta cargada en el sistema.",
+      "La sucursal Oeste reparte en el primer cordón del oeste bonaerense: Ramos Mejía, Haedo, Morón, Villa Sarmiento, Ciudadela y Villa Luro. El servicio funciona de lunes a viernes con una única salida diaria a las quince horas y no hay reparto los sábados, domingos ni feriados. Los pedidos que entran después del horario de corte se despachan al día hábil siguiente. Esta sucursal es además el punto de entrega de los productos de cadena de frío para toda la red del oeste, porque es la única que tiene heladera de transporte homologada. Las entregas a Merlo, Moreno e Ituzaingó no están habilitadas."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.8472467484730196,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "simple-03",
+    "tipo": "simple",
+    "docs": [
+      "DOC-014"
+    ],
+    "pregunta": "¿Puedo usar la misma receta electrónica en dos sucursales distintas?",
+    "ground_truth": "No. Cada receta electrónica se marca como consumida al dispensarla, lo que impide que el mismo código se use dos veces en dos sucursales de la red.",
+    "respuesta": "No, no es posible. Cada receta electrónica se marca como consumida al momento de la dispensa, lo que impide que el mismo código sea utilizado dos veces en distintas sucursales de la red [DOC-014].",
+    "fuentes": [
+      "DOC-014",
+      "DOC-005",
+      "DOC-019"
+    ],
+    "contextos": [
+      "La receta electrónica se acepta en todas las sucursales siempre que traiga el código de validación o el QR emitido por la plataforma habilitada, y se verifica en línea contra el repositorio del emisor antes de dispensar. Una foto o una captura de pantalla de una receta en papel no es una receta electrónica y no habilita la dispensa por sí sola: sirve para que el farmacéutico haga la prevalidación y arme el pedido, pero el original se exige igual en el momento de la entrega. Cada receta electrónica se marca como consumida al dispensarla, lo que impide que el mismo código se use dos veces en dos sucursales distintas de la red.",
+      "El retiro en sucursal permite al cliente reservar el producto por el canal de WhatsApp y pasarlo a buscar por el mostrador sin hacer cola. La reserva se mantiene durante cuarenta y ocho horas corridas desde la confirmación; pasado ese plazo el stock se libera automáticamente y vuelve al catálogo disponible. Para retirar hay que presentar el número de pedido y, si el producto es bajo receta, la receta original en papel o la receta electrónica con su código de validación. El retiro no tiene costo y está disponible en las tres sucursales durante todo el horario de atención, incluido el turno de la noche en la sucursal Centro.",
+      "Cuando un producto figura sin stock en la sucursal consultada, el sistema ofrece tres caminos antes de dar la consulta por perdida: verificar la disponibilidad en las otras sucursales de la red y proponer el retiro ahí, encargarlo a la droguería con un plazo estimado de cuarenta y ocho a setenta y dos horas hábiles, o proponer el genérico equivalente de la misma droga y la misma concentración para que el cliente decida. El encargo a droguería se registra como pedido en estado borrador y no se cobra hasta que la mercadería entra efectivamente al depósito. El sistema nunca sustituye el medicamento por iniciativa propia: propone la alternativa y espera la confirmación explícita del cliente."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.9539733722861138,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "compleja-01",
+    "tipo": "compleja",
+    "docs": [
+      "DOC-008",
+      "DOC-009"
+    ],
+    "pregunta": "Tengo OSDE y quiero pagar con la promo del banco, ¿se me suman los dos descuentos?",
+    "ground_truth": "No. Los descuentos bancarios nunca se acumulan con el descuento de la obra social: el sistema aplica automáticamente el beneficio que más le conviene al cliente. Las promociones bancarias se limitan a perfumería, dermocosmética, cuidado personal y accesorios. Para el descuento de OSDE hace falta la credencial digital o el número de afiliado y una receta vigente a nombre del titular.",
+    "respuesta": "No, los descuentos bancarios y las promociones por día de la semana no se acumulan con el descuento de la obra social [DOC-008]. El sistema aplica automáticamente el beneficio que más le convenga al cliente y descarta el otro [DOC-008]. Además, las promociones bancarias no alcanzan a los medicamentos bajo receta [DOC-008].",
+    "fuentes": [
+      "DOC-008",
+      "DOC-009",
+      "DOC-011"
+    ],
+    "contextos": [
+      "Los descuentos bancarios y las promociones por día de la semana se aplican sobre el precio de lista y nunca se acumulan con el descuento de la obra social: el sistema toma automáticamente el beneficio que más conviene al cliente y descarta el otro. Las promociones bancarias no alcanzan a los medicamentos bajo receta archivada ni a los productos de venta regulada, y quedan limitadas a perfumería, dermocosmética, cuidado personal y accesorios. El tope de reintegro por operación lo fija cada banco y el sistema lo informa antes de cerrar la compra, porque un descuento anunciado que después no impacta en el resumen es el reclamo más frecuente del mostrador.",
+      "El convenio con OSDE cubre a los afiliados de todos los planes con un porcentaje de descuento que varía según el tipo de medicamento: los de uso ambulatorio tienen la cobertura general del plan, mientras que los tratamientos crónicos declarados y los medicamentos del programa de enfermedades prolongadas llegan a una cobertura ampliada. Para liquidar el descuento hace falta la credencial digital o el número de afiliado y una receta vigente a nombre del titular. La validación se hace en línea contra el sistema de la obra social en el momento de la venta: si el afiliado figura con la cuota impaga o el plan dado de baja, la cobertura se rechaza y la venta se cierra como particular, a precio de lista.",
+      "Los convenios con Swiss Medical, OMINT y Medifé funcionan bajo el mismo circuito de validación en línea y comparten la misma exigencia documental: credencial vigente, receta con diagnóstico y firma del profesional, y coincidencia exacta entre el titular de la receta y el afiliado. Las tres prepagas cubren los medicamentos de venta bajo receta según el plan contratado y dejan fuera los productos de perfumería, suplementos dietarios y accesorios, que siempre se cobran a precio de lista. Los planes corporativos pueden tener un vademécum restringido distinto del plan individual, por lo que la cobertura se consulta siempre contra el padrón y nunca se estima a partir del nombre de la prepaga."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.8326384130926299,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "compleja-02",
+    "tipo": "compleja",
+    "docs": [
+      "DOC-019",
+      "DOC-003"
+    ],
+    "pregunta": "Si no tienen el remedio, ¿me lo encargan y me lo mandan a Ramos Mejía el sábado?",
+    "ground_truth": "Se puede encargar a la droguería con un plazo estimado de cuarenta y ocho a setenta y dos horas hábiles, y no se cobra hasta que la mercadería entra al depósito. Pero Ramos Mejía la cubre la sucursal Oeste, que reparte de lunes a viernes con una única salida a las quince horas: no hay reparto los sábados.",
+    "respuesta": "Si un producto no tiene stock, podemos encargarlo a la droguería con un plazo de cuarenta y ocho a setenta y dos horas hábiles [DOC-019]. Sin embargo, no poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "fuentes": [
+      "DOC-004",
+      "DOC-019",
+      "DOC-001"
+    ],
+    "contextos": [
+      "La ventana de corte del reparto define si un pedido llega en el día o pasa a la jornada siguiente. Para que una compra salga con la última ronda de reparto tiene que estar pagada y con la receta validada antes de las dieciséis horas de lunes a viernes y antes de las doce del mediodía los sábados. Un pedido confirmado a las cuatro y cuarto de la tarde no entra en el reparto de ese día, aunque el cliente insista o marque el pedido como urgente: el sistema nunca promete una entrega para hoy fuera de esa ventana, porque una promesa incumplida en un medicamento genera más daño que una demora anunciada. Los domingos y feriados no hay reparto en ninguna sucursal de la red.",
+      "Cuando un producto figura sin stock en la sucursal consultada, el sistema ofrece tres caminos antes de dar la consulta por perdida: verificar la disponibilidad en las otras sucursales de la red y proponer el retiro ahí, encargarlo a la droguería con un plazo estimado de cuarenta y ocho a setenta y dos horas hábiles, o proponer el genérico equivalente de la misma droga y la misma concentración para que el cliente decida. El encargo a droguería se registra como pedido en estado borrador y no se cobra hasta que la mercadería entra efectivamente al depósito. El sistema nunca sustituye el medicamento por iniciativa propia: propone la alternativa y espera la confirmación explícita del cliente.",
+      "La sucursal Centro despacha pedidos a domicilio dentro del microcentro porteño y los barrios linderos: San Nicolás, Monserrat, Retiro, Recoleta, Balvanera y Congreso. El reparto lo hace un cadete propio en moto, con dos salidas diarias, una al mediodía y otra a media tarde. El envío es sin cargo cuando la compra supera el monto mínimo vigente; por debajo de ese monto se cobra una tarifa fija de mensajería que el sistema informa antes de confirmar. No se despacha fuera de la General Paz desde esta sucursal: si el cliente pide una entrega en el conurbano, la operación se deriva a la sucursal que cubre esa zona. Los pedidos que incluyen medicamentos bajo receta solo salen a reparto una vez que el farmacéutico validó la imagen de la receta cargada en el sistema."
+    ],
+    "abstencion_ok": false,
+    "faithfulness": 0.5,
+    "answer_relevancy": 0.6862014934205276,
+    "context_precision": 0.99999999995,
+    "context_recall": 0.5
+  },
+  {
+    "id": "compleja-03",
+    "tipo": "compleja",
+    "docs": [
+      "DOC-013"
+    ],
+    "pregunta": "¿Puedo comprar clonazepam por WhatsApp y que me lo manden a casa?",
+    "ground_truth": "No. El clonazepam es un psicotrópico: no se vende por WhatsApp ni se despacha a domicilio. Solo se dispensa en forma presencial contra receta oficial archivada, con troquel, firma y sello del profesional, que el farmacéutico verifica en papel contra el documento de quien retira. La receta queda archivada en la farmacia.",
+    "respuesta": "No, los psicotrópicos como el clonazepam no se venden por WhatsApp ni se despachan a domicilio [DOC-013]. La dispensa es exclusivamente presencial y requiere que el farmacéutico verifique la receta original en papel contra el documento de identidad de quien retira [DOC-013].",
+    "fuentes": [
+      "DOC-013",
+      "DOC-005",
+      "DOC-015"
+    ],
+    "contextos": [
+      "Los psicotrópicos y estupefacientes de las listas reguladas —clonazepam, alprazolam, zolpidem, metilfenidato y derivados— solo se dispensan contra receta oficial archivada por duplicado o triplicado según la lista, emitida en el formulario oficial, con el troquel adherido, la firma y el sello del profesional, y los datos completos del paciente. La receta queda archivada en la farmacia por el plazo que fija la normativa y no se devuelve al cliente bajo ningún concepto. Este tipo de producto no se vende por WhatsApp ni se despacha a domicilio: la dispensa es presencial y exige que el farmacéutico verifique la receta original en papel contra el documento de identidad de quien retira.",
+      "El retiro en sucursal permite al cliente reservar el producto por el canal de WhatsApp y pasarlo a buscar por el mostrador sin hacer cola. La reserva se mantiene durante cuarenta y ocho horas corridas desde la confirmación; pasado ese plazo el stock se libera automáticamente y vuelve al catálogo disponible. Para retirar hay que presentar el número de pedido y, si el producto es bajo receta, la receta original en papel o la receta electrónica con su código de validación. El retiro no tiene costo y está disponible en las tres sucursales durante todo el horario de atención, incluido el turno de la noche en la sucursal Centro.",
+      "Los medicamentos de venta libre —analgésicos y antifebriles de uso común como el paracetamol, el ibuprofeno y la aspirina en sus presentaciones de dosis estándar, además de antiácidos, descongestivos nasales y antisépticos de uso externo— se venden sin receta y se despachan a domicilio sin ninguna validación previa. La venta libre tiene un tope de unidades por operación para evitar el desvío al circuito mayorista y el acopio: un pedido que supera ese tope se frena y se deriva a un humano. El sistema nunca recomienda un medicamento para un síntoma descrito por el cliente, aunque sea de venta libre, porque la indicación terapéutica es un acto profesional y no una consulta de catálogo."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.9492925749225908,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "escape-01",
+    "tipo": "escape",
+    "docs": [],
+    "pregunta": "¿Me pueden tomar la presión en la farmacia?",
+    "ground_truth": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "respuesta": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "fuentes": [
+      "DOC-010",
+      "DOC-005",
+      "DOC-011"
+    ],
+    "contextos": [
+      "Los jubilados y pensionados afiliados al PAMI acceden al vademécum del instituto con cobertura preferencial y, en el caso de los tratamientos crónicos de presión arterial, diabetes y colesterol incluidos en el listado de medicamentos gratuitos, el afiliado no abona nada en el mostrador. La receta tiene que estar emitida por un médico de cartilla del instituto y llevar el sello con la matrícula; la credencial del afiliado es obligatoria y no se acepta el trámite con el documento solo. La cantidad de envases por receta está topeada por el propio instituto y el sistema rechaza la carga que supere ese tope, aunque el cliente lo pida y aunque haya stock disponible.",
+      "El retiro en sucursal permite al cliente reservar el producto por el canal de WhatsApp y pasarlo a buscar por el mostrador sin hacer cola. La reserva se mantiene durante cuarenta y ocho horas corridas desde la confirmación; pasado ese plazo el stock se libera automáticamente y vuelve al catálogo disponible. Para retirar hay que presentar el número de pedido y, si el producto es bajo receta, la receta original en papel o la receta electrónica con su código de validación. El retiro no tiene costo y está disponible en las tres sucursales durante todo el horario de atención, incluido el turno de la noche en la sucursal Centro.",
+      "Los convenios con Swiss Medical, OMINT y Medifé funcionan bajo el mismo circuito de validación en línea y comparten la misma exigencia documental: credencial vigente, receta con diagnóstico y firma del profesional, y coincidencia exacta entre el titular de la receta y el afiliado. Las tres prepagas cubren los medicamentos de venta bajo receta según el plan contratado y dejan fuera los productos de perfumería, suplementos dietarios y accesorios, que siempre se cobran a precio de lista. Los planes corporativos pueden tener un vademécum restringido distinto del plan individual, por lo que la cobertura se consulta siempre contra el padrón y nunca se estima a partir del nombre de la prepaga."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": NaN,
+    "answer_relevancy": NaN,
+    "context_precision": NaN,
+    "context_recall": NaN
+  },
+  {
+    "id": "escape-02",
+    "tipo": "escape",
+    "docs": [],
+    "pregunta": "¿Cuánto sale la caja de ibuprofeno de 400?",
+    "ground_truth": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "respuesta": "No puedo confirmar precios por este medio [DOC-015]. No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "fuentes": [
+      "DOC-015",
+      "DOC-006",
+      "DOC-018"
+    ],
+    "contextos": [
+      "Los medicamentos de venta libre —analgésicos y antifebriles de uso común como el paracetamol, el ibuprofeno y la aspirina en sus presentaciones de dosis estándar, además de antiácidos, descongestivos nasales y antisépticos de uso externo— se venden sin receta y se despachan a domicilio sin ninguna validación previa. La venta libre tiene un tope de unidades por operación para evitar el desvío al circuito mayorista y el acopio: un pedido que supera ese tope se frena y se deriva a un humano. El sistema nunca recomienda un medicamento para un síntoma descrito por el cliente, aunque sea de venta libre, porque la indicación terapéutica es un acto profesional y no una consulta de catálogo.",
+      "Los productos que exigen conservación entre dos y ocho grados —insulinas, plumas de aplicación, vacunas, algunos biológicos y colirios refrigerados— viajan en conservadora con gel refrigerante y registro de temperatura, y solo se despachan en la primera ronda de reparto de la mañana para minimizar el tiempo fuera de la heladera. Este tipo de envío no se terceriza con mensajería común y no se entrega a un tercero: la persona que recibe tiene que ser el titular del pedido o alguien autorizado en el momento de la compra. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo, porque un medicamento que rompió la cadena de frío no se vende bajo ninguna circunstancia.",
+      "Los medicamentos no admiten cambio ni devolución una vez que salieron del mostrador, porque la trazabilidad y la conservación fuera de la farmacia no se pueden garantizar. La única excepción es el producto entregado por error del sistema o con el envase dañado, el vencimiento cumplido o la cadena de frío rota, casos en los que se repone sin cargo con el ticket y dentro de las setenta y dos horas. Los productos de perfumería y dermocosmética sin abrir sí se cambian dentro de los quince días con el comprobante. Ningún reclamo de devolución se resuelve por el canal automático: siempre se deriva a un responsable de sucursal."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": NaN,
+    "answer_relevancy": NaN,
+    "context_precision": NaN,
+    "context_recall": NaN
+  },
+  {
+    "id": "informal-01",
+    "tipo": "informal",
+    "docs": [
+      "DOC-006"
+    ],
+    "pregunta": "che si me mandan la insu no se me corta lo del frio??",
+    "ground_truth": "La insulina viaja en conservadora con gel refrigerante y registro de temperatura, y solo se despacha en la primera ronda de reparto de la mañana. La recibe el titular o alguien autorizado. Si la temperatura se sale de rango en el trayecto, el producto se da de baja y se repone sin cargo.",
+    "respuesta": "Para los productos que requieren conservación entre dos y ocho grados, como las insulinas, utilizamos conservadoras con gel refrigerante y registro de temperatura [DOC-006]. Estos pedidos se despachan únicamente en la primera ronda de la mañana para minimizar el tiempo fuera de la heladera [DOC-006]. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo [DOC-006].",
+    "fuentes": [
+      "DOC-006",
+      "DOC-010",
+      "DOC-004"
+    ],
+    "contextos": [
+      "Los productos que exigen conservación entre dos y ocho grados —insulinas, plumas de aplicación, vacunas, algunos biológicos y colirios refrigerados— viajan en conservadora con gel refrigerante y registro de temperatura, y solo se despachan en la primera ronda de reparto de la mañana para minimizar el tiempo fuera de la heladera. Este tipo de envío no se terceriza con mensajería común y no se entrega a un tercero: la persona que recibe tiene que ser el titular del pedido o alguien autorizado en el momento de la compra. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo, porque un medicamento que rompió la cadena de frío no se vende bajo ninguna circunstancia.",
+      "Los jubilados y pensionados afiliados al PAMI acceden al vademécum del instituto con cobertura preferencial y, en el caso de los tratamientos crónicos de presión arterial, diabetes y colesterol incluidos en el listado de medicamentos gratuitos, el afiliado no abona nada en el mostrador. La receta tiene que estar emitida por un médico de cartilla del instituto y llevar el sello con la matrícula; la credencial del afiliado es obligatoria y no se acepta el trámite con el documento solo. La cantidad de envases por receta está topeada por el propio instituto y el sistema rechaza la carga que supere ese tope, aunque el cliente lo pida y aunque haya stock disponible.",
+      "La ventana de corte del reparto define si un pedido llega en el día o pasa a la jornada siguiente. Para que una compra salga con la última ronda de reparto tiene que estar pagada y con la receta validada antes de las dieciséis horas de lunes a viernes y antes de las doce del mediodía los sábados. Un pedido confirmado a las cuatro y cuarto de la tarde no entra en el reparto de ese día, aunque el cliente insista o marque el pedido como urgente: el sistema nunca promete una entrega para hoy fuera de esa ventana, porque una promesa incumplida en un medicamento genera más daño que una demora anunciada. Los domingos y feriados no hay reparto en ninguna sucursal de la red."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.7016592762678744,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "informal-02",
+    "tipo": "informal",
+    "docs": [
+      "DOC-010"
+    ],
+    "pregunta": "mi vieja tiene pami, le sale gratis lo de la presion o q onda",
+    "ground_truth": "Sí, si el medicamento para la presión está en el listado de medicamentos gratuitos de PAMI para tratamientos crónicos, no abona nada. Necesita una receta de un médico de cartilla con sello y matrícula y la credencial de afiliada; no alcanza con el documento.",
+    "respuesta": "¡Hola! Los afiliados a PAMI acceden a los medicamentos para presión arterial incluidos en el listado de gratuitos sin abonar nada en el mostrador [DOC-010]. Para esto, la receta debe ser de un médico de cartilla con sello y matrícula, y es obligatorio presentar la credencial del afiliado [DOC-010]. Tené en cuenta que la cantidad de envases está topeada por el instituto y el sistema rechazará cualquier carga que supere ese límite [DOC-010].",
+    "fuentes": [
+      "DOC-010",
+      "DOC-011",
+      "DOC-009"
+    ],
+    "contextos": [
+      "Los jubilados y pensionados afiliados al PAMI acceden al vademécum del instituto con cobertura preferencial y, en el caso de los tratamientos crónicos de presión arterial, diabetes y colesterol incluidos en el listado de medicamentos gratuitos, el afiliado no abona nada en el mostrador. La receta tiene que estar emitida por un médico de cartilla del instituto y llevar el sello con la matrícula; la credencial del afiliado es obligatoria y no se acepta el trámite con el documento solo. La cantidad de envases por receta está topeada por el propio instituto y el sistema rechaza la carga que supere ese tope, aunque el cliente lo pida y aunque haya stock disponible.",
+      "Los convenios con Swiss Medical, OMINT y Medifé funcionan bajo el mismo circuito de validación en línea y comparten la misma exigencia documental: credencial vigente, receta con diagnóstico y firma del profesional, y coincidencia exacta entre el titular de la receta y el afiliado. Las tres prepagas cubren los medicamentos de venta bajo receta según el plan contratado y dejan fuera los productos de perfumería, suplementos dietarios y accesorios, que siempre se cobran a precio de lista. Los planes corporativos pueden tener un vademécum restringido distinto del plan individual, por lo que la cobertura se consulta siempre contra el padrón y nunca se estima a partir del nombre de la prepaga.",
+      "El convenio con OSDE cubre a los afiliados de todos los planes con un porcentaje de descuento que varía según el tipo de medicamento: los de uso ambulatorio tienen la cobertura general del plan, mientras que los tratamientos crónicos declarados y los medicamentos del programa de enfermedades prolongadas llegan a una cobertura ampliada. Para liquidar el descuento hace falta la credencial digital o el número de afiliado y una receta vigente a nombre del titular. La validación se hace en línea contra el sistema de la obra social en el momento de la venta: si el afiliado figura con la cuota impaga o el plan dado de baja, la cobertura se rechaza y la venta se cierra como particular, a precio de lista."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.8600662745339008,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  }
+]
