@@ -41,6 +41,16 @@ Un sistema con IA que automatiza las consultas de los clientes por WhatsApp, ver
 | `informe_entrega2.md` | Partes A y B completas + Parte C |
 | `resultados_killer_queries.md` | Las 3 killer queries con resultados reales (B.6) |
 
+### Entrega 3 — Sistema RAG completo con evaluación (`entrega_3/`)
+
+| Archivo | Contenido |
+| :--- | :--- |
+| `entrega_3/rag_pipeline.py` | Partes A y B: chain LCEL sobre la base de la Entrega 2, matriz de resiliencia, trazabilidad, chunking 500/100, reranking con LLM-juez y traza en LangSmith |
+| `entrega_3/evaluacion_ragas.py` | Parte C: golden dataset de 10 preguntas y evaluación RAGAS del RAG básico y del avanzado |
+| `entrega_3/resultados_ragas/` | Resultados de RAGAS caso por caso, de cada pipeline |
+| `entrega_3/langsmith_trace.png` | Captura de la traza de B.4 |
+| `entrega_3/informe.md` | Partes A, B y C completas |
+
 ### Comunes
 
 | Archivo | Contenido |
@@ -87,8 +97,41 @@ Editar el `.env` recién creado y completar:
 | :--- | :---: | :--- |
 | `GEMINI_API_KEY` | Sí | Clave de la API de Google Gemini ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)). La usan tanto el pipeline de la Entrega 1 como los embeddings de la Entrega 2. |
 | `GEMINI_MODEL` | No | Modelo de chat para `app.py`. Si no se define, usa `gemini-3.6-flash`. |
+| `LANGSMITH_API_KEY` | Solo para B.4 | Clave de LangSmith ([smith.langchain.com](https://smith.langchain.com) → Settings → API Keys). |
+| `LANGSMITH_TRACING` | Solo para B.4 | `true` para que cada corrida del pipeline se registre como traza. |
+| `LANGSMITH_PROJECT` | Solo para B.4 | Proyecto de LangSmith donde se agrupan las trazas. |
 
 > ⚠️ El archivo `.env` está en `.gitignore` y nunca se commitea. Solo se versiona `.env.example`, sin valores.
+
+---
+
+## ▶️ Cómo correr la Entrega 3
+
+Requiere la base de la Entrega 2 construida (`python vector_db.py --ingesta` y `python etl_purga.py`).
+
+### Partes A y B — Pipeline RAG
+
+```bash
+python entrega_3/rag_pipeline.py --preguntar "¿me guardan la reserva?"   # A.2: respuesta + fuentes
+python entrega_3/rag_pipeline.py --matriz                               # A.3: matriz de resiliencia
+python entrega_3/rag_pipeline.py --trazabilidad                         # A.4: fragmentos y metadatos
+python entrega_3/rag_pipeline.py --falla                                # B.1: falla del RAG básico
+python entrega_3/rag_pipeline.py --reindexar                            # B.2: chunking 500/100
+python entrega_3/rag_pipeline.py --preguntar "..." --avanzado           # B.3: chunks + reranking
+python entrega_3/rag_pipeline.py --traza                                # B.4: traza en LangSmith
+```
+
+`--reindexar` va antes de `--avanzado` y `--traza`: crea la colección de chunks.
+
+### Parte C — Evaluación RAGAS
+
+```bash
+python entrega_3/evaluacion_ragas.py --pipeline basico      # C.2: baseline
+python entrega_3/evaluacion_ragas.py --pipeline avanzado    # C.3
+python entrega_3/evaluacion_ragas.py --comparar             # C.3: tabla comparativa
+```
+
+> La capa gratuita de Gemini limita las requests por día. Si la cuota corta una corrida, lo medido queda guardado: el mismo comando retoma desde el primer caso pendiente.
 
 ---
 
