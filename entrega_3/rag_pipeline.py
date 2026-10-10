@@ -1,5 +1,5 @@
 """
-Entrega 3 — Parte A: pipeline RAG con LangChain LCEL.
+Entrega 3 — Partes A y B: pipeline RAG con LangChain LCEL y chunking.
 
 A.1  Retriever sobre la MISMA base ChromaDB de la Entrega 2: chroma_db/ y la
      colección politicas_farmacia, importadas de vector_db.py.
@@ -7,11 +7,15 @@ A.2  Chain LCEL: retriever -> prompt con guardrails -> LLM -> parser. Devuelve l
      respuesta y los documentos fuente.
 A.3  Matriz de validación de resiliencia (4 escenarios).
 A.4  Trazabilidad de fuentes: fragmento + metadatos de cada documento usado.
+B.1  La consulta donde el RAG básico falla.
+B.2  Reindexado con chunking 500/100 en una colección nueva.
 
 Uso (desde la raíz del repo):
     python entrega_3/rag_pipeline.py --preguntar "me guardan la reserva?"   # A.2
     python entrega_3/rag_pipeline.py --matriz                               # A.3
     python entrega_3/rag_pipeline.py --trazabilidad                         # A.4
+    python entrega_3/rag_pipeline.py --falla                                # B.1
+    python entrega_3/rag_pipeline.py --reindexar                            # B.2
 """
 
 import argparse
@@ -28,6 +32,7 @@ from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableParallel, RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
@@ -48,6 +53,12 @@ load_dotenv(RAIZ / ".env")
 # embeddings no cambian (son los de la Entrega 2), así que la base es la misma.
 MODELO_CHAT = "gemini-3.1-flash-lite"
 K_BASICO = 3
+
+# B.2 — Colección nueva para los chunks. La de la Entrega 2 queda intacta: el RAG
+# básico la sigue usando y la evaluación de la Parte C compara los dos.
+COLECCION_CHUNKS = f"{COLECCION}_chunks"
+CHUNK_SIZE = 500
+CHUNK_OVERLAP = 100
 
 FRASE_ESCAPE = (
     "No poseo información sobre eso en las políticas de la farmacia. "
@@ -228,11 +239,120 @@ def trazabilidad() -> None:
         imprimir_resultado(rag.invoke(pregunta), largo_fragmento=160)
 
 
+# --------------------------------------------------------------------------- #
+# B.1 — La consulta donde el RAG básico falla
+# --------------------------------------------------------------------------- #
+CONSULTA_FALLA = "Si no tienen el remedio, ¿me lo encargan y me lo mandan a Ramos Mejía el sábado?"
+DOC_QUE_RESPONDE = "DOC-003"  # sucursal Oeste: cubre Ramos Mejía y no reparte los sábados
+CHUNK_QUE_RESPONDE = "DOC-003#0"  # B.2: el chunk donde quedó esa oración
+
+
+def ranking(consulta: str, coleccion: str, k: int) -> list[tuple[Document, float]]:
+    return abrir_vectorstore(coleccion).similarity_search_with_score(
+        consulta, k=k, filter={"vigente": True}
+    )
+
+
+def falla_rag_basico() -> None:
+    """
+    Muestra la respuesta del RAG básico y el ranking completo de la consulta: el
+    documento que tiene la respuesta existe en la base, pero no entra al top-3.
+    """
+    print("=" * 78)
+    print("B.1 — RAG básico (documentos enteros, k=3)")
+    print("=" * 78)
+    imprimir_resultado(construir_rag_basico().invoke(CONSULTA_FALLA))
+
+    print(f"Ranking de la colección '{COLECCION}' (distancia coseno, top-8):")
+    for puesto, (doc, distancia) in enumerate(ranking(CONSULTA_FALLA, COLECCION, 8), start=1):
+        marca = "   <- tiene la respuesta" if doc.id == DOC_QUE_RESPONDE else ""
+        corte = "   ---- corte k=3 ----" if puesto == K_BASICO else ""
+        print(f"  {puesto}. {doc.id}  {distancia:.4f}  {doc.page_content[:60]}...{marca}{corte}")
+    print()
+
+
+# --------------------------------------------------------------------------- #
+# B.2 — Chunking con solapamiento
+# --------------------------------------------------------------------------- #
+def reindexar_con_chunks() -> None:
+    """
+    Lee los documentos de la colección de la Entrega 2 (incluye los que sumó el
+    ETL de B.5) y los parte con RecursiveCharacterTextSplitter 500/100.
+
+    El splitter corta primero por párrafo, después por oración y recién después
+    por palabra: con 100 caracteres de solapamiento, la oración que queda en el
+    borde de un chunk aparece entera en el siguiente.
+    """
+    original = chromadb.PersistentClient(path=str(DIR_CHROMA)).get_collection(COLECCION)
+    base = original.get(include=["documents", "metadatas"])
+
+    splitter = RecursiveCharacterTextSplitter(
+        chunk_size=CHUNK_SIZE,
+        chunk_overlap=CHUNK_OVERLAP,
+        separators=["\n\n", "\n", ". ", "; ", ", ", " ", ""],
+        keep_separator="end",
+    )
+
+    ids, textos, metadatos = [], [], []
+    for doc_id, texto, meta in zip(base["ids"], base["documents"], base["metadatas"]):
+        for numero, chunk in enumerate(splitter.split_text(texto)):
+            ids.append(f"{doc_id}#{numero}")
+            textos.append(chunk)
+            # Los metadatos del documento se heredan enteros: el filtro de
+            # vigencia y la trazabilidad de A.4 siguen funcionando sobre los chunks.
+            metadatos.append({**meta, "doc_id": doc_id, "chunk": numero})
+
+    cliente = chromadb.PersistentClient(path=str(DIR_CHROMA))
+    if COLECCION_CHUNKS in [c.name for c in cliente.list_collections()]:
+        cliente.delete_collection(COLECCION_CHUNKS)
+    nueva = cliente.create_collection(
+        name=COLECCION_CHUNKS,
+        embedding_function=EmbeddingFarmacia(),
+        metadata={"hnsw:space": "cosine"},
+    )
+    nueva.add(ids=ids, documents=textos, metadatas=metadatos)
+
+    largos = [len(t) for t in textos]
+    por_doc = len(ids) / len(base["ids"])
+    print(f"[B.2] '{COLECCION}' -> '{COLECCION_CHUNKS}' (chunk_size={CHUNK_SIZE}, "
+          f"chunk_overlap={CHUNK_OVERLAP})")
+    print(f"      antes : {len(base['ids'])} registros (un documento entero = un vector)")
+    print(f"      ahora : {nueva.count()} chunks ({por_doc:.2f} por documento)")
+    print(f"      largo de los chunks: mín {min(largos)} · prom {sum(largos) / len(largos):.0f} · "
+          f"máx {max(largos)} caracteres")
+
+    print(f"\n      Chunks de {DOC_QUE_RESPONDE}:")
+    for chunk_id, texto in zip(ids, textos):
+        if chunk_id.startswith(DOC_QUE_RESPONDE):
+            print(f"        {chunk_id} ({len(texto)}): {texto}")
+    print()
+
+
+def falla_con_chunks() -> None:
+    """B.2 — ¿El rechunking resuelve la falla de B.1? Mismo k=3, otra colección."""
+    print("=" * 78)
+    print(f"B.2 — RAG básico sobre los chunks (k={K_BASICO})")
+    print("=" * 78)
+    imprimir_resultado(construir_rag_basico(COLECCION_CHUNKS).invoke(CONSULTA_FALLA))
+    print(f"Ranking de la colección '{COLECCION_CHUNKS}' (top-8):")
+    for puesto, (doc, distancia) in enumerate(ranking(CONSULTA_FALLA, COLECCION_CHUNKS, 8), start=1):
+        marca = ""
+        if doc.id == CHUNK_QUE_RESPONDE:
+            marca = "   <- tiene la respuesta"
+        elif id_documento(doc) == DOC_QUE_RESPONDE:
+            marca = "   <- mismo documento, sin la regla del sábado"
+        corte = "   ---- corte k=3 ----" if puesto == K_BASICO else ""
+        print(f"  {puesto}. {doc.id:<10} {distancia:.4f}  {doc.page_content[:55]}...{marca}{corte}")
+    print()
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Pipeline RAG con LCEL (Entrega 3, Parte A).")
+    parser = argparse.ArgumentParser(description="Pipeline RAG con LCEL (Entrega 3, Partes A y B).")
     parser.add_argument("--preguntar", metavar="CONSULTA", help="A.2: corre el chain y muestra respuesta + fuentes.")
     parser.add_argument("--matriz", action="store_true", help="A.3: matriz de validación de resiliencia.")
     parser.add_argument("--trazabilidad", action="store_true", help="A.4: fuentes con fragmento y metadatos.")
+    parser.add_argument("--falla", action="store_true", help="B.1: la consulta donde falla el RAG básico.")
+    parser.add_argument("--reindexar", action="store_true", help="B.2: chunking 500/100 y nueva colección.")
     args = parser.parse_args()
 
     if args.preguntar:
@@ -241,6 +361,11 @@ def main() -> int:
         matriz_resiliencia()
     if args.trazabilidad:
         trazabilidad()
+    if args.falla:
+        falla_rag_basico()
+    if args.reindexar:
+        reindexar_con_chunks()
+        falla_con_chunks()
     if not any(vars(args).values()):
         parser.print_help()
     return 0
