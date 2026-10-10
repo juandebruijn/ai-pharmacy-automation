@@ -1,0 +1,218 @@
+[
+  {
+    "id": "simple-01",
+    "tipo": "simple",
+    "docs": [
+      "DOC-007"
+    ],
+    "pregunta": "¿Aceptan cheques o dólares como forma de pago?",
+    "ground_truth": "No. No se aceptan cheques ni pagos en moneda extranjera. Los medios aceptados son transferencia bancaria por CBU o alias, tarjetas de crédito y débito, billeteras virtuales con código QR y efectivo solo contra entrega.",
+    "respuesta": "No aceptamos cheques ni pagos en moneda extranjera en ninguna de nuestras sucursales [DOC-007]. Los medios de pago habilitados son transferencia bancaria, tarjetas de crédito y débito, billeteras virtuales con QR y efectivo contra entrega o en mostrador [DOC-007].",
+    "fuentes": [
+      "DOC-007#0"
+    ],
+    "contextos": [
+      "Los medios de pago aceptados en el canal digital son transferencia bancaria por CBU o alias, tarjetas de crédito y débito de todas las marcas procesadas por la pasarela, billeteras virtuales con código QR y efectivo únicamente contra entrega en la puerta o en el mostrador. No se aceptan cheques, ni pagos en moneda extranjera, ni pagos fraccionados entre dos medios distintos en la misma operación."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 0.5714285714285714,
+    "answer_relevancy": 0.734790155998668,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "simple-02",
+    "tipo": "simple",
+    "docs": [
+      "DOC-004"
+    ],
+    "pregunta": "¿Hasta qué hora tengo que confirmar el pedido un día de semana para que me llegue en el día?",
+    "ground_truth": "De lunes a viernes el pedido tiene que estar pagado y con la receta validada antes de las dieciséis horas para salir en la última ronda de reparto; si se confirma después, pasa a la jornada siguiente.",
+    "respuesta": "Para que tu pedido salga con la última ronda de reparto en días de semana, debe estar pagado y con la receta validada antes de las dieciséis horas [DOC-004]. Recordá que el pedido se considera confirmado recién cuando la acreditación del pago impacta en el sistema [DOC-007]. Si el pedido se confirma después de ese horario, no entrará en el reparto del día [DOC-004].",
+    "fuentes": [
+      "DOC-004#0",
+      "DOC-004#1",
+      "DOC-007#1"
+    ],
+    "contextos": [
+      "La ventana de corte del reparto define si un pedido llega en el día o pasa a la jornada siguiente. Para que una compra salga con la última ronda de reparto tiene que estar pagada y con la receta validada antes de las dieciséis horas de lunes a viernes y antes de las doce del mediodía los sábados.",
+      "Un pedido confirmado a las cuatro y cuarto de la tarde no entra en el reparto de ese día, aunque el cliente insista o marque el pedido como urgente: el sistema nunca promete una entrega para hoy fuera de esa ventana, porque una promesa incumplida en un medicamento genera más daño que una demora anunciada. Los domingos y feriados no hay reparto en ninguna sucursal de la red.",
+      "El pedido se considera confirmado recién cuando la acreditación del pago impacta en el sistema: una captura de pantalla de la transferencia no alcanza para liberar el despacho, porque la reserva de stock se hace contra la acreditación real y no contra el comprobante enviado por el cliente."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.798076255990296,
+    "context_precision": 0.99999999995,
+    "context_recall": 1.0
+  },
+  {
+    "id": "simple-03",
+    "tipo": "simple",
+    "docs": [
+      "DOC-014"
+    ],
+    "pregunta": "¿Puedo usar la misma receta electrónica en dos sucursales distintas?",
+    "ground_truth": "No. Cada receta electrónica se marca como consumida al dispensarla, lo que impide que el mismo código se use dos veces en dos sucursales de la red.",
+    "respuesta": "No, no es posible. Cada receta electrónica se marca como consumida al momento de la dispensación, lo que impide que el mismo código sea utilizado en dos sucursales distintas de la red [DOC-014].",
+    "fuentes": [
+      "DOC-014#1"
+    ],
+    "contextos": [
+      "Cada receta electrónica se marca como consumida al dispensarla, lo que impide que el mismo código se use dos veces en dos sucursales distintas de la red."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.9663181015333929,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  },
+  {
+    "id": "compleja-01",
+    "tipo": "compleja",
+    "docs": [
+      "DOC-008",
+      "DOC-009"
+    ],
+    "pregunta": "Tengo OSDE y quiero pagar con la promo del banco, ¿se me suman los dos descuentos?",
+    "ground_truth": "No. Los descuentos bancarios nunca se acumulan con el descuento de la obra social: el sistema aplica automáticamente el beneficio que más le conviene al cliente. Las promociones bancarias se limitan a perfumería, dermocosmética, cuidado personal y accesorios. Para el descuento de OSDE hace falta la credencial digital o el número de afiliado y una receta vigente a nombre del titular.",
+    "respuesta": "No, los descuentos bancarios y los de la obra social no son acumulables. El sistema aplica automáticamente el beneficio que más le convenga al cliente y descarta el otro [DOC-008].",
+    "fuentes": [
+      "DOC-008#0"
+    ],
+    "contextos": [
+      "Los descuentos bancarios y las promociones por día de la semana se aplican sobre el precio de lista y nunca se acumulan con el descuento de la obra social: el sistema toma automáticamente el beneficio que más conviene al cliente y descarta el otro. Las promociones bancarias no alcanzan a los medicamentos bajo receta archivada ni a los productos de venta regulada, y quedan limitadas a perfumería, dermocosmética, cuidado personal y accesorios."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.8346310369308092,
+    "context_precision": 0.9999999999,
+    "context_recall": 0.75
+  },
+  {
+    "id": "compleja-02",
+    "tipo": "compleja",
+    "docs": [
+      "DOC-019",
+      "DOC-003"
+    ],
+    "pregunta": "Si no tienen el remedio, ¿me lo encargan y me lo mandan a Ramos Mejía el sábado?",
+    "ground_truth": "Se puede encargar a la droguería con un plazo estimado de cuarenta y ocho a setenta y dos horas hábiles, y no se cobra hasta que la mercadería entra al depósito. Pero Ramos Mejía la cubre la sucursal Oeste, que reparte de lunes a viernes con una única salida a las quince horas: no hay reparto los sábados.",
+    "respuesta": "Si el producto no tiene stock, podemos encargarlo a la droguería con un plazo de cuarenta y ocho a setenta y dos horas hábiles [DOC-019]. Sin embargo, la sucursal Oeste no realiza repartos los días sábados, ya que el servicio funciona únicamente de lunes a viernes [DOC-003].",
+    "fuentes": [
+      "DOC-003#0",
+      "DOC-019#0"
+    ],
+    "contextos": [
+      "La sucursal Oeste reparte en el primer cordón del oeste bonaerense: Ramos Mejía, Haedo, Morón, Villa Sarmiento, Ciudadela y Villa Luro. El servicio funciona de lunes a viernes con una única salida diaria a las quince horas y no hay reparto los sábados, domingos ni feriados. Los pedidos que entran después del horario de corte se despachan al día hábil siguiente.",
+      "Cuando un producto figura sin stock en la sucursal consultada, el sistema ofrece tres caminos antes de dar la consulta por perdida: verificar la disponibilidad en las otras sucursales de la red y proponer el retiro ahí, encargarlo a la droguería con un plazo estimado de cuarenta y ocho a setenta y dos horas hábiles, o proponer el genérico equivalente de la misma droga y la misma concentración para que el cliente decida."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.7394029536858656,
+    "context_precision": 0.9999999999,
+    "context_recall": 0.6666666666666666
+  },
+  {
+    "id": "compleja-03",
+    "tipo": "compleja",
+    "docs": [
+      "DOC-013"
+    ],
+    "pregunta": "¿Puedo comprar clonazepam por WhatsApp y que me lo manden a casa?",
+    "ground_truth": "No. El clonazepam es un psicotrópico: no se vende por WhatsApp ni se despacha a domicilio. Solo se dispensa en forma presencial contra receta oficial archivada, con troquel, firma y sello del profesional, que el farmacéutico verifica en papel contra el documento de quien retira. La receta queda archivada en la farmacia.",
+    "respuesta": "No, ese tipo de producto no se vende por WhatsApp ni se despacha a domicilio [DOC-013]. La dispensa es exclusivamente presencial y exige que el farmacéutico verifique la receta original en papel contra el documento de identidad de quien retira [DOC-013].",
+    "fuentes": [
+      "DOC-013#1",
+      "DOC-013#0"
+    ],
+    "contextos": [
+      "Este tipo de producto no se vende por WhatsApp ni se despacha a domicilio: la dispensa es presencial y exige que el farmacéutico verifique la receta original en papel contra el documento de identidad de quien retira.",
+      "Los psicotrópicos y estupefacientes de las listas reguladas —clonazepam, alprazolam, zolpidem, metilfenidato y derivados— solo se dispensan contra receta oficial archivada por duplicado o triplicado según la lista, emitida en el formulario oficial, con el troquel adherido, la firma y el sello del profesional, y los datos completos del paciente. La receta queda archivada en la farmacia por el plazo que fija la normativa y no se devuelve al cliente bajo ningún concepto."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.8105031416626587,
+    "context_precision": 0.99999999995,
+    "context_recall": 1.0
+  },
+  {
+    "id": "escape-01",
+    "tipo": "escape",
+    "docs": [],
+    "pregunta": "¿Me pueden tomar la presión en la farmacia?",
+    "ground_truth": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "respuesta": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "fuentes": [
+      "DOC-104#1"
+    ],
+    "contextos": [
+      "El resto del público la abona a precio de lista. La aplicación exige permanecer quince minutos en la sala de observación y no se realiza a domicilio bajo ninguna modalidad."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": NaN,
+    "answer_relevancy": NaN,
+    "context_precision": NaN,
+    "context_recall": NaN
+  },
+  {
+    "id": "escape-02",
+    "tipo": "escape",
+    "docs": [],
+    "pregunta": "¿Cuánto sale la caja de ibuprofeno de 400?",
+    "ground_truth": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "respuesta": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "fuentes": [],
+    "contextos": [],
+    "abstencion_ok": true,
+    "faithfulness": NaN,
+    "answer_relevancy": NaN,
+    "context_precision": NaN,
+    "context_recall": NaN
+  },
+  {
+    "id": "informal-01",
+    "tipo": "informal",
+    "docs": [
+      "DOC-006"
+    ],
+    "pregunta": "che si me mandan la insu no se me corta lo del frio??",
+    "ground_truth": "La insulina viaja en conservadora con gel refrigerante y registro de temperatura, y solo se despacha en la primera ronda de reparto de la mañana. La recibe el titular o alguien autorizado. Si la temperatura se sale de rango en el trayecto, el producto se da de baja y se repone sin cargo.",
+    "respuesta": "Para los productos que requieren conservación entre dos y ocho grados, como las insulinas, utilizamos conservadoras con gel refrigerante y registro de temperatura [DOC-006]. Los despachamos exclusivamente en la primera ronda de reparto de la mañana para minimizar el tiempo fuera de la heladera [DOC-006]. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo [DOC-006].",
+    "fuentes": [
+      "DOC-006#1",
+      "DOC-006#0",
+      "DOC-018#0"
+    ],
+    "contextos": [
+      "Este tipo de envío no se terceriza con mensajería común y no se entrega a un tercero: la persona que recibe tiene que ser el titular del pedido o alguien autorizado en el momento de la compra. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo, porque un medicamento que rompió la cadena de frío no se vende bajo ninguna circunstancia.",
+      "Los productos que exigen conservación entre dos y ocho grados —insulinas, plumas de aplicación, vacunas, algunos biológicos y colirios refrigerados— viajan en conservadora con gel refrigerante y registro de temperatura, y solo se despachan en la primera ronda de reparto de la mañana para minimizar el tiempo fuera de la heladera.",
+      "Los medicamentos no admiten cambio ni devolución una vez que salieron del mostrador, porque la trazabilidad y la conservación fuera de la farmacia no se pueden garantizar. La única excepción es el producto entregado por error del sistema o con el envase dañado, el vencimiento cumplido o la cadena de frío rota, casos en los que se repone sin cargo con el ticket y dentro de las setenta y dos horas."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.5903054193356702,
+    "context_precision": 0.9999999999666667,
+    "context_recall": 1.0
+  },
+  {
+    "id": "informal-02",
+    "tipo": "informal",
+    "docs": [
+      "DOC-010"
+    ],
+    "pregunta": "mi vieja tiene pami, le sale gratis lo de la presion o q onda",
+    "ground_truth": "Sí, si el medicamento para la presión está en el listado de medicamentos gratuitos de PAMI para tratamientos crónicos, no abona nada. Necesita una receta de un médico de cartilla con sello y matrícula y la credencial de afiliada; no alcanza con el documento.",
+    "respuesta": "¡Hola! Los afiliados a PAMI acceden a cobertura preferencial y, para los tratamientos crónicos de presión arterial incluidos en el listado de medicamentos gratuitos, no abonan nada en el mostrador [DOC-010]. Es obligatorio presentar la credencial del afiliado y la receta emitida por un médico de cartilla del instituto con su sello y matrícula [DOC-010]. No se acepta el trámite solo con el documento [DOC-010].",
+    "fuentes": [
+      "DOC-010#0"
+    ],
+    "contextos": [
+      "Los jubilados y pensionados afiliados al PAMI acceden al vademécum del instituto con cobertura preferencial y, en el caso de los tratamientos crónicos de presión arterial, diabetes y colesterol incluidos en el listado de medicamentos gratuitos, el afiliado no abona nada en el mostrador. La receta tiene que estar emitida por un médico de cartilla del instituto y llevar el sello con la matrícula; la credencial del afiliado es obligatoria y no se acepta el trámite con el documento solo."
+    ],
+    "abstencion_ok": true,
+    "faithfulness": 1.0,
+    "answer_relevancy": 0.8485428148922789,
+    "context_precision": 0.9999999999,
+    "context_recall": 1.0
+  }
+]

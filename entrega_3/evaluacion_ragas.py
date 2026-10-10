@@ -4,9 +4,13 @@ Entrega 3 — Parte C: evaluación del pipeline RAG con RAGAS.
 C.1  Golden dataset: 10 preguntas del dominio con su respuesta esperada.
 C.2  Baseline RAGAS sobre el RAG básico: Faithfulness, Answer Relevancy,
      Context Precision y Context Recall.
+C.3  Misma evaluación sobre el RAG avanzado (chunking + reranking) y tabla
+     comparativa con el delta de cada métrica.
 
 Uso (desde la raíz del repo):
     python entrega_3/evaluacion_ragas.py --pipeline basico      # C.2
+    python entrega_3/evaluacion_ragas.py --pipeline avanzado    # C.3
+    python entrega_3/evaluacion_ragas.py --comparar             # C.3: tabla básico vs. avanzado
 
 Cada caso medido se guarda en entrega_3/resultados_ragas/<pipeline>.json apenas
 termina: si la cuota gratuita de Gemini corta la corrida, se vuelve a correr el
@@ -37,7 +41,11 @@ from ragas.metrics.collections import (  # noqa: E402
     Faithfulness,
 )
 
-from rag_pipeline import FRASE_ESCAPE, construir_rag_basico  # noqa: E402
+from rag_pipeline import (  # noqa: E402
+    FRASE_ESCAPE,
+    construir_rag_avanzado,
+    construir_rag_basico,
+)
 
 AQUI = Path(__file__).resolve().parent
 DIR_RESULTADOS = AQUI / "resultados_ragas"
@@ -201,7 +209,7 @@ def se_abstuvo(respuesta: str) -> bool:
 # Ejecución
 # --------------------------------------------------------------------------- #
 def evaluar(nombre: str, reiniciar: bool = False) -> None:
-    rag = construir_rag_basico()
+    rag = construir_rag_avanzado() if nombre == "avanzado" else construir_rag_basico()
     metricas = crear_metricas()
 
     DIR_RESULTADOS.mkdir(exist_ok=True)
@@ -216,8 +224,8 @@ def evaluar(nombre: str, reiniciar: bool = False) -> None:
             continue
         print(f"\n[{caso['id']}] {caso['pregunta']}")
         salida = con_reintentos(lambda: rag.invoke(caso["pregunta"]))
-        # Para RAGAS el contexto es lo que efectivamente llegó al LLM, en el orden
-        # en que lo devolvió el retriever (Context Precision mira el orden).
+        # Para RAGAS el contexto es lo que efectivamente llegó al LLM: en el
+        # avanzado, los chunks que eligió el juez, en el orden en que los dejó.
         contextos = [d.page_content for d in salida["documentos"]]
         print(f"  respuesta: {salida['respuesta'][:110]}")
 
@@ -266,15 +274,48 @@ def imprimir_resumen(nombre: str, filas: list[dict]) -> None:
                                           for m in METRICAS))
 
 
+# --------------------------------------------------------------------------- #
+# C.3 — Tabla comparativa
+# --------------------------------------------------------------------------- #
+def comparar() -> None:
+    corridas = {}
+    for nombre in ("basico", "avanzado"):
+        ruta = DIR_RESULTADOS / f"{nombre}.json"
+        if not ruta.exists():
+            raise SystemExit(f"Falta {ruta.name}: corré primero --pipeline {nombre}.")
+        corridas[nombre] = json.loads(ruta.read_text(encoding="utf-8"))
+
+    print("| Métrica | RAG básico | RAG avanzado | Delta |")
+    print("| :--- | :---: | :---: | :---: |")
+    for m in METRICAS:
+        basico = promedio([f[m] for f in corridas["basico"]])
+        avanzado = promedio([f[m] for f in corridas["avanzado"]])
+        print(f"| {m} | {basico:.3f} | {avanzado:.3f} | {avanzado - basico:+.3f} |")
+    print("| abstención correcta | "
+          + " | ".join(f"{sum(f['abstencion_ok'] for f in corridas[n])}/{len(corridas[n])}"
+                       for n in ("basico", "avanzado")) + " | |")
+
+    print("\n| Caso | " + " | ".join(f"{m} (B → A)" for m in METRICAS) + " |")
+    print("| :--- |" + " :---: |" * len(METRICAS))
+    avanzado_por_id = {f["id"]: f for f in corridas["avanzado"]}
+    for b in corridas["basico"]:
+        a = avanzado_por_id[b["id"]]
+        celdas = ["n/a" if math.isnan(b[m]) else f"{b[m]:.2f} → {a[m]:.2f}" for m in METRICAS]
+        print(f"| {b['id']} | " + " | ".join(celdas) + " |")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Evaluación RAGAS del pipeline RAG (Entrega 3, Parte C).")
-    parser.add_argument("--pipeline", choices=["basico"], help="pipeline a evaluar.")
+    parser.add_argument("--pipeline", choices=["basico", "avanzado"], help="pipeline a evaluar.")
     parser.add_argument("--reiniciar", action="store_true", help="descarta lo medido y empieza de cero.")
+    parser.add_argument("--comparar", action="store_true", help="C.3: tabla básico vs. avanzado.")
     args = parser.parse_args()
 
     if args.pipeline:
         evaluar(args.pipeline, args.reiniciar)
-    if not args.pipeline:
+    if args.comparar:
+        comparar()
+    if not (args.pipeline or args.comparar):
         parser.print_help()
     return 0
 
