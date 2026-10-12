@@ -1,5 +1,5 @@
 """
-Entrega 3 — Partes A y B: pipeline RAG con LangChain LCEL y chunking.
+Entrega 3 — Partes A y B: pipeline RAG con LangChain LCEL, chunking y reranking.
 
 A.1  Retriever sobre la MISMA base ChromaDB de la Entrega 2: chroma_db/ y la
      colección politicas_farmacia, importadas de vector_db.py.
@@ -9,6 +9,8 @@ A.3  Matriz de validación de resiliencia (4 escenarios).
 A.4  Trazabilidad de fuentes: fragmento + metadatos de cada documento usado.
 B.1  La consulta donde el RAG básico falla.
 B.2  Reindexado con chunking 500/100 en una colección nueva.
+B.3  RAG avanzado: k=8 sobre los chunks + reranking con el LLM como juez.
+B.4  Traza en LangSmith: tiempos, tokens y recuperados vs. seleccionados.
 
 Uso (desde la raíz del repo):
     python entrega_3/rag_pipeline.py --preguntar "me guardan la reserva?"   # A.2
@@ -16,11 +18,15 @@ Uso (desde la raíz del repo):
     python entrega_3/rag_pipeline.py --trazabilidad                         # A.4
     python entrega_3/rag_pipeline.py --falla                                # B.1
     python entrega_3/rag_pipeline.py --reindexar                            # B.2
+    python entrega_3/rag_pipeline.py --preguntar "..." --avanzado           # B.3
+    python entrega_3/rag_pipeline.py --traza                                # B.4
 """
 
 import argparse
 import os
 import sys
+import time
+import uuid
 from pathlib import Path
 
 import chromadb
@@ -30,9 +36,10 @@ from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.runnables import RunnableParallel, RunnablePassthrough
+from langchain_core.runnables import RunnableLambda, RunnableParallel, RunnablePassthrough
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from pydantic import BaseModel, Field
 
 RAIZ = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(RAIZ))
@@ -59,6 +66,11 @@ K_BASICO = 3
 COLECCION_CHUNKS = f"{COLECCION}_chunks"
 CHUNK_SIZE = 500
 CHUNK_OVERLAP = 100
+
+# B.3 — Reranking
+K_AVANZADO = 8
+PUNTAJE_MINIMO = 6   # sobre 10: por debajo, el juez considera que el chunk no responde
+MAX_SELECCIONADOS = 4
 
 FRASE_ESCAPE = (
     "No poseo información sobre eso en las políticas de la farmacia. "
@@ -186,7 +198,13 @@ def construir_rag_basico(coleccion: str = COLECCION, k: int = K_BASICO):
 
 def imprimir_resultado(salida: dict, largo_fragmento: int = 0) -> None:
     print(f"Consulta : {salida['pregunta']}")
-    print(f"Fuentes  : {', '.join(id_documento(d) for d in salida['documentos'])}")
+    if "recuperados" in salida:
+        print(f"Recuperados ({len(salida['recuperados'])}): "
+              + ", ".join(f"{d.id}" for d in salida["recuperados"]))
+        print(f"Seleccionados por el juez ({len(salida['documentos'])}): "
+              + ", ".join(f"{d.id} ({d.metadata['puntaje_juez']}/10)" for d in salida["documentos"]))
+    else:
+        print(f"Fuentes  : {', '.join(id_documento(d) for d in salida['documentos'])}")
     print(f"Respuesta: {salida['respuesta']}")
     if largo_fragmento:
         print("Documentos fuente:")
@@ -346,17 +364,142 @@ def falla_con_chunks() -> None:
     print()
 
 
+# --------------------------------------------------------------------------- #
+# B.3 — Reranking con el LLM como juez
+# --------------------------------------------------------------------------- #
+class Puntaje(BaseModel):
+    fragmento: int = Field(description="Número del fragmento evaluado.")
+    puntaje: int = Field(ge=0, le=10, description="Relevancia de 0 a 10.")
+
+
+class Juicio(BaseModel):
+    puntajes: list[Puntaje]
+
+
+PROMPT_JUEZ = ChatPromptTemplate.from_messages([
+    ("system",
+     "Sos un juez de relevancia para el buscador de una red de farmacias. Para cada fragmento "
+     "numerado, puntuá de 0 a 10 cuánto sirve para responder la consulta del cliente:\n"
+     "10 = contiene explícitamente el dato que responde la consulta.\n"
+     "6 a 9 = aporta una parte necesaria de la respuesta o una condición que la cambia.\n"
+     "1 a 5 = es del mismo tema pero no responde lo que se pregunta.\n"
+     "0 = no tiene relación.\n"
+     "Puntuá cada fragmento por lo que dice, no por su posición. Devolvé un puntaje por fragmento."),
+    ("human", "CONSULTA: {pregunta}\n\nFRAGMENTOS:\n{fragmentos}"),
+])
+
+
+def crear_reranker():
+    juez = PROMPT_JUEZ | crear_llm().with_structured_output(Juicio)
+
+    def rerankear(entrada: dict) -> list[Document]:
+        recuperados = entrada["recuperados"]
+        if not recuperados:
+            return []
+        fragmentos = "\n\n".join(
+            f"[{i}] ({id_documento(d)}) {d.page_content}" for i, d in enumerate(recuperados)
+        )
+        juicio = juez.invoke({"pregunta": entrada["pregunta"], "fragmentos": fragmentos})
+        puntajes = {p.fragmento: p.puntaje for p in juicio.puntajes}
+
+        # Orden por puntaje del juez; ante empate manda el orden original del retriever.
+        ordenados = sorted(range(len(recuperados)), key=lambda i: (-puntajes.get(i, 0), i))
+        seleccionados = []
+        for i in ordenados[:MAX_SELECCIONADOS]:
+            if puntajes.get(i, 0) >= PUNTAJE_MINIMO:
+                doc = recuperados[i]
+                seleccionados.append(Document(
+                    id=doc.id, page_content=doc.page_content,
+                    metadata={**doc.metadata, "puntaje_juez": puntajes[i]},
+                ))
+        return seleccionados
+
+    return RunnableLambda(rerankear).with_config(run_name="rerank_llm_juez")
+
+
+def construir_rag_avanzado():
+    """
+    Recupera 8 chunks y deja que el LLM-juez elija hasta 4 con puntaje >= 6 antes de
+    generar. Devuelve también 'recuperados', para ver qué descartó el reranking.
+
+    Si el juez no aprueba ninguno, el contexto llega vacío y el prompt dispara la
+    frase de escape: el corte por relevancia lo decide el juez y no un umbral fijo
+    de distancia, que es lo que la Entrega 2 (C.2) dejó pendiente.
+    """
+    return (
+        RunnableParallel(
+            recuperados=crear_retriever(COLECCION_CHUNKS, K_AVANZADO),
+            pregunta=RunnablePassthrough(),
+        )
+        .assign(documentos=crear_reranker())
+        .assign(respuesta=cadena_generacion())
+    ).with_config(run_name="rag_avanzado")
+
+
+# --------------------------------------------------------------------------- #
+# B.4 — Traza en LangSmith
+# --------------------------------------------------------------------------- #
+def capturar_traza(pregunta: str = CONSULTA_FALLA) -> None:
+    """
+    Corre el RAG avanzado con el tracing de LangSmith activo y después lee la traza
+    de la API para imprimir tiempos y tokens por paso.
+    """
+    from langchain_core.tracers.langchain import wait_for_all_tracers
+    from langsmith import Client
+
+    if os.getenv("LANGSMITH_TRACING", "").lower() != "true" or not os.getenv("LANGSMITH_API_KEY"):
+        raise SystemExit("Faltan LANGSMITH_TRACING=true y LANGSMITH_API_KEY en el .env (ver .env.example).")
+
+    run_id = uuid.uuid4()
+    salida = construir_rag_avanzado().invoke(pregunta, config={"run_id": run_id})
+    wait_for_all_tracers()
+    imprimir_resultado(salida)
+
+    # LangSmith procesa la traza en segundo plano: hasta que no cierra todos los
+    # pasos, end_time viene vacío. Se espera a que el árbol esté completo.
+    cliente = Client()
+    for _ in range(30):
+        raiz = cliente.read_run(run_id, load_child_runs=True)
+        pendientes = [raiz]
+        completa = True
+        while pendientes:
+            run = pendientes.pop()
+            completa &= run.end_time is not None
+            pendientes.extend(run.child_runs or [])
+        if completa:
+            break
+        time.sleep(2)
+
+    print(f"[B.4] Proyecto LangSmith: {os.getenv('LANGSMITH_PROJECT', 'default')}")
+    print(f"      Traza: {cliente.get_run_url(run=raiz)}")
+    print(f"      Enlace público: {cliente.share_run(run_id)}")
+    print(f"      Tokens totales: {raiz.total_tokens} "
+          f"(entrada {raiz.prompt_tokens} · salida {raiz.completion_tokens})")
+
+    def recorrer(run, nivel=0):
+        duracion = (run.end_time - run.start_time).total_seconds()
+        tokens = f"  tokens={run.total_tokens}" if run.total_tokens else ""
+        print(f"      {'  ' * nivel}{run.name:<34} {duracion:6.2f} s{tokens}")
+        for hijo in sorted(run.child_runs or [], key=lambda r: r.start_time):
+            recorrer(hijo, nivel + 1)
+
+    recorrer(raiz)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Pipeline RAG con LCEL (Entrega 3, Partes A y B).")
     parser.add_argument("--preguntar", metavar="CONSULTA", help="A.2: corre el chain y muestra respuesta + fuentes.")
+    parser.add_argument("--avanzado", action="store_true", help="B.3: usa chunks + reranking en --preguntar.")
     parser.add_argument("--matriz", action="store_true", help="A.3: matriz de validación de resiliencia.")
     parser.add_argument("--trazabilidad", action="store_true", help="A.4: fuentes con fragmento y metadatos.")
     parser.add_argument("--falla", action="store_true", help="B.1: la consulta donde falla el RAG básico.")
     parser.add_argument("--reindexar", action="store_true", help="B.2: chunking 500/100 y nueva colección.")
+    parser.add_argument("--traza", action="store_true", help="B.4: corre el RAG avanzado con LangSmith.")
     args = parser.parse_args()
 
     if args.preguntar:
-        imprimir_resultado(construir_rag_basico().invoke(args.preguntar), largo_fragmento=160)
+        rag = construir_rag_avanzado() if args.avanzado else construir_rag_basico()
+        imprimir_resultado(rag.invoke(args.preguntar), largo_fragmento=160)
     if args.matriz:
         matriz_resiliencia()
     if args.trazabilidad:
@@ -366,6 +509,8 @@ def main() -> int:
     if args.reindexar:
         reindexar_con_chunks()
         falla_con_chunks()
+    if args.traza:
+        capturar_traza()
     if not any(vars(args).values()):
         parser.print_help()
     return 0
