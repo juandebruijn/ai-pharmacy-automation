@@ -7,9 +7,11 @@ La Entrega 2 dejó una base de conocimiento que **encuentra** el documento corre
 | Archivo | Contenido |
 | :--- | :--- |
 | `rag_pipeline.py` | Partes A y B: retriever sobre la base de la Entrega 2, chain LCEL, chunking, reranking y traza |
+| `evaluacion_ragas.py` | Parte C: golden dataset de 10 preguntas y evaluación RAGAS de los dos pipelines |
+| `resultados_ragas/` | Lo que devolvió cada corrida de RAGAS, caso por caso (respuesta, contextos y métricas) |
 | `langsmith_trace.png` | Captura de la traza de B.4 ([enlace público](https://smith.langchain.com/public/edf36d7f-0d27-499d-b769-322d5c41e39f/r)) |
 
-> **Sobre el modelo.** La Entrega 1 usó `gemini-3.6-flash`, pero en la capa gratuita ese modelo da **20 requests por día** y RAGAS solo necesita cientos. El RAG genera con `gemini-3.1-flash-lite`. Los embeddings **no cambian** (`gemini-embedding-001`, 768 dimensiones): la base es exactamente la de la Entrega 2.
+> **Sobre el modelo.** La Entrega 1 usó `gemini-3.6-flash`, pero en la capa gratuita ese modelo da **20 requests por día** y RAGAS solo necesita cientos. El RAG genera con `gemini-3.1-flash-lite` y el juez de RAGAS es `gemini-3.5-flash-lite`: son modelos distintos a propósito, porque cada uno tiene su propia cuota diaria. Los embeddings **no cambian** (`gemini-embedding-001`, 768 dimensiones): la base es exactamente la de la Entrega 2.
 
 ---
 
@@ -149,7 +151,7 @@ Ranking de la colección 'politicas_farmacia' (distancia coseno, top-8):
   5. DOC-005  0.3063  El retiro en sucursal permite al cliente reservar el product...
 ```
 
-**Qué falla.** La mitad de la pregunta queda sin responder y el sistema deriva a un humano algo que la base sí sabe.
+**Qué falla.** La mitad de la pregunta queda sin responder y el sistema deriva a un humano algo que la base sí sabe. En RAGAS (Parte C, caso `compleja-02`) es el peor caso del pipeline básico: Faithfulness 0,50 y Context Recall 0,50.
 
 Y el riesgo de negocio es peor que una derivación innecesaria. El contexto que sí llegó al LLM tiene **DOC-004**, que dice que los sábados se reparte si el pedido entra *"antes de las doce del mediodía"*. Es una regla de red que la sucursal Oeste no cumple. Con un prompt menos estricto, la respuesta natural habría sido *"sí, si lo confirmás antes de las 12"*: una promesa incumplible.
 
@@ -287,3 +289,58 @@ LANGSMITH_PROJECT=ai-pharmacy-automation
 
 * **Recuperados vs. seleccionados.** En el *output* del run raíz, `recuperados` tiene **8 items** y `documentos` tiene **2** (`DOC-003#0` y `DOC-019#0`). La diferencia es exactamente lo que filtró el juez.
 * **El costo del reranking.** El juez es el paso más caro: **46 % del tiempo** y **61 % de los tokens**, porque lee 8 fragmentos para devolver 8 números. A cambio, la generación recibe 2 chunks en vez de 8, y la respuesta es la correcta. En producción, la palanca de costo es achicar el k o pasar a un cross-encoder local, que no consume tokens.
+
+---
+
+## Parte C — Evaluación con RAGAS
+
+### C.1 — Golden dataset
+
+`GOLDEN_SET` en `evaluacion_ragas.py`: 10 preguntas del dominio con su respuesta esperada escrita a mano a partir de los documentos.
+
+| ID | Tipo | Pregunta | Documentos |
+| :--- | :--- | :--- | :--- |
+| simple-01 | Simple | ¿Aceptan cheques o dólares como forma de pago? | DOC-007 |
+| simple-02 | Simple | ¿Hasta qué hora tengo que confirmar el pedido un día de semana para que me llegue en el día? | DOC-004 |
+| simple-03 | Simple | ¿Puedo usar la misma receta electrónica en dos sucursales distintas? | DOC-014 |
+| compleja-01 | Compleja | Tengo OSDE y quiero pagar con la promo del banco, ¿se me suman los dos descuentos? | DOC-008 + DOC-009 |
+| compleja-02 | Compleja | Si no tienen el remedio, ¿me lo encargan y me lo mandan a Ramos Mejía el sábado? | DOC-019 + DOC-003 |
+| compleja-03 | Compleja | ¿Puedo comprar clonazepam por WhatsApp y que me lo manden a casa? | DOC-013 (sus dos chunks) |
+| escape-01 | Escape | ¿Me pueden tomar la presión en la farmacia? | — |
+| escape-02 | Escape | ¿Cuánto sale la caja de ibuprofeno de 400? | — |
+| informal-01 | Informal | che si me mandan la insu no se me corta lo del frio?? | DOC-006 |
+| informal-02 | Informal | mi vieja tiene pami, le sale gratis lo de la presion o q onda | DOC-010 |
+
+**Criterios del diseño:**
+
+* **Simples:** la respuesta entra en un solo chunk (*"no se aceptan cheques ni pagos en moneda extranjera"* está en `DOC-007#0`).
+* **Complejas:** cada una obliga a combinar fragmentos. `compleja-01` cruza la regla de no acumulación (DOC-008) con los requisitos de OSDE (DOC-009). `compleja-02` es la falla de B.1. `compleja-03` necesita los dos chunks de DOC-013: la receta oficial archivada está en el `#0` y la prohibición de vender por WhatsApp y despachar a domicilio, en el `#1`.
+* **Escape:** `escape-01` es una vecina del dominio (una farmacia podría tomar la presión, esta no lo documenta) y salió de la calibración de C.2 de la Entrega 2. `escape-02` ataca la regla 2: el precio no está en la base vectorial sino en la tabla `productos`.
+* **Informales:** jerga de WhatsApp sin tildes ni signos (*"la insu"*, *"lo del frio"*, *"mi vieja"*, *"q onda"*).
+
+**Cómo se miden las preguntas de escape.** Sin una respuesta de referencia útil, las cuatro métricas no aplican: dan NaN y no entran en los promedios. Lo que se mide en esas dos es un chequeo determinista, **abstención correcta**: la frase de escape tiene que aparecer en las preguntas de escape y no en las demás. Como la frase es fija (A.2), se detecta con un `in`, sin gastar llamadas al juez.
+
+### C.2 — Baseline RAGAS (RAG básico)
+
+`python entrega_3/evaluacion_ragas.py --pipeline basico`. El juez es `gemini-3.5-flash-lite`, usado a través del endpoint de Gemini compatible con OpenAI (RAGAS 0.4 lo usa con `llm_factory`), y `AnswerRelevancy` corre con `strictness=1` para ahorrar cuota. Cada caso se guarda en `resultados_ragas/basico.json` apenas termina, y si la cuota diaria corta la corrida, el mismo comando la retoma.
+
+| Métrica | Qué mide | RAG básico | Peor caso |
+| :--- | :--- | :---: | :--- |
+| **Faithfulness** | Ausencia de alucinaciones: afirmaciones de la respuesta respaldadas por el contexto | **0,902** | compleja-02 (0,50) |
+| **Answer Relevancy** | Pertinencia: qué tan directo responde a lo que se preguntó | **0,822** | compleja-02 (0,69) |
+| **Context Precision** | Ausencia de ruido: los chunks útiles, ¿están arriba en el ranking? | **1,000** | — |
+| **Context Recall** | Recuperación: ¿está en el contexto todo lo que dice la referencia? | **0,938** | compleja-02 (0,50) |
+| Abstención correcta | Frase de escape solo cuando corresponde | **9/10** | compleja-02 |
+
+| Tipo | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
+| :--- | :---: | :---: | :---: | :---: |
+| Simples | 0,90 | 0,85 | 1,00 | 1,00 |
+| Complejas | 0,83 | 0,82 | 1,00 | 0,83 |
+| Informales | 1,00 | 0,78 | 1,00 | 1,00 |
+
+**Lectura del baseline:**
+
+* **Las métricas confirman la falla de B.1.** `compleja-02` es el peor caso en tres de las cuatro métricas: Context Recall 0,50 porque falta DOC-003, y es el único caso con abstención incorrecta, porque escapó a mitad de la respuesta.
+* **Context Precision en 1,000 no significa que no haya ruido.** RAGAS calcula la precisión promediada **sobre las posiciones de los chunks relevantes**: si el primer documento sirve, la métrica da 1,0 aunque los otros dos no sirvan. En el básico, el documento correcto casi siempre sale primero (los documentos de la Entrega 2 son monotemáticos), así que el ruido queda en los puestos 2 y 3, donde esta métrica no lo ve. Para verlo hay que medir cuánto contexto llega al LLM (C.3).
+* **El 0,71 de faithfulness en `simple-01`** viene de una sola frase: *"en ninguna de nuestras sucursales"*. Es cierta para el negocio, pero el documento no la dice. El juez es estricto, y está bien que lo sea.
+* **`escape-02` pasó la abstención por dos caminos:** primero aplicó la regla 2 (*"No puedo confirmar precios por este medio"*) y después la frase de escape.
