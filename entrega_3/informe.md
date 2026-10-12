@@ -344,3 +344,72 @@ LANGSMITH_PROJECT=ai-pharmacy-automation
 * **Context Precision en 1,000 no significa que no haya ruido.** RAGAS calcula la precisión promediada **sobre las posiciones de los chunks relevantes**: si el primer documento sirve, la métrica da 1,0 aunque los otros dos no sirvan. En el básico, el documento correcto casi siempre sale primero (los documentos de la Entrega 2 son monotemáticos), así que el ruido queda en los puestos 2 y 3, donde esta métrica no lo ve. Para verlo hay que medir cuánto contexto llega al LLM (C.3).
 * **El 0,71 de faithfulness en `simple-01`** viene de una sola frase: *"en ninguna de nuestras sucursales"*. Es cierta para el negocio, pero el documento no la dice. El juez es estricto, y está bien que lo sea.
 * **`escape-02` pasó la abstención por dos caminos:** primero aplicó la regla 2 (*"No puedo confirmar precios por este medio"*) y después la frase de escape.
+
+### C.3 — Comparativa: RAG básico vs. RAG avanzado
+
+`python entrega_3/evaluacion_ragas.py --pipeline avanzado` y después `--comparar`:
+
+| Métrica | RAG básico | RAG avanzado | Delta |
+| :--- | :---: | :---: | :---: |
+| **Faithfulness** | 0,902 | **0,946** | **+0,045** |
+| Answer Relevancy | 0,822 | 0,790 | −0,031 |
+| Context Precision | 1,000 | 1,000 | 0,000 |
+| Context Recall | 0,938 | 0,927 | −0,010 |
+| **Abstención correcta** | 9/10 | **10/10** | **+1** |
+| Contexto por pregunta | 3 docs · 2.054 caracteres | 1,75 chunks · 631 caracteres | **−69 %** |
+
+| Caso | Faithfulness | Answer Relevancy | Context Precision | Context Recall |
+| :--- | :---: | :---: | :---: | :---: |
+| simple-01 | 0,71 → 0,57 | 0,74 → 0,73 | 1,00 → 1,00 | 1,00 → 1,00 |
+| simple-02 | 1,00 → 1,00 | 0,85 → 0,80 | 1,00 → 1,00 | 1,00 → 1,00 |
+| simple-03 | 1,00 → 1,00 | 0,95 → 0,97 | 1,00 → 1,00 | 1,00 → 1,00 |
+| compleja-01 | 1,00 → 1,00 | 0,83 → 0,83 | 1,00 → 1,00 | 1,00 → **0,75** |
+| **compleja-02** | **0,50 → 1,00** | 0,69 → 0,74 | 1,00 → 1,00 | **0,50 → 0,67** |
+| compleja-03 | 1,00 → 1,00 | 0,95 → 0,81 | 1,00 → 1,00 | 1,00 → 1,00 |
+| informal-01 | 1,00 → 1,00 | 0,70 → **0,59** | 1,00 → 1,00 | 1,00 → 1,00 |
+| informal-02 | 1,00 → 1,00 | 0,86 → 0,85 | 1,00 → 1,00 | 1,00 → 1,00 |
+
+**La mejora: Faithfulness +0,045 y abstención perfecta.**
+
+* **`compleja-02` pasa de 0,50 a 1,00 en Faithfulness**, y su Context Recall sube de 0,50 a 0,67. Es la falla de B.1 resuelta, medida por un juez independiente y no solo por lectura.
+* **Abstención 10/10.** El básico escapaba a mitad de `compleja-02`, y en `escape-02` agregaba una frase sobre precios antes del escape. El avanzado escapa limpio en las dos de escape y en ninguna otra. En `escape-02` el juez **no aprobó ningún chunk** (`fuentes: []`): es el corte por relevancia funcionando como umbral, lo que la Entrega 2 no había podido resolver con distancias.
+* **El contexto que llega al LLM cae un 69 %**, de 2.054 a 631 caracteres por pregunta. Es el ruido que Context Precision no veía (C.2): el reranking lo saca del prompt, y eso explica buena parte de la suba de Faithfulness, porque el modelo tiene menos material ajeno con el que mezclar.
+
+**Lo que empeoró, y por qué:**
+
+* **Context Recall −0,010, por `compleja-01`.** El juez se quedó solo con `DOC-008#0` (la no acumulación) y descartó el chunk de OSDE con los requisitos de credencial y receta. Es el costo de un filtro estricto: el umbral de 6/10 y la escala del juez priorizan lo que **responde** la pregunta (*"¿se suman?"*), no lo que la **completa**. La referencia incluía los requisitos de OSDE, y RAGAS lo penaliza.
+* **Faithfulness de `simple-01`, 0,71 → 0,57.** Es la misma frase de antes (*"en ninguna de nuestras sucursales"*) sobre un contexto más chico: con menos afirmaciones respaldadas en total, la frase sin respaldo pesa más. No es una alucinación nueva.
+* **Answer Relevancy −0,031.** Es la peor métrica del avanzado y se analiza en C.4.
+
+> **Sobre la variabilidad.** Con un LLM como juez, cada corrida tiene ruido: una diferencia de ±0,03 en un promedio de 8 casos está dentro de lo esperable. Por eso la lectura se apoya en los casos, no solo en los promedios. `compleja-02` (0,50 → 1,00) y la abstención (9 → 10) son cambios de comportamiento que se ven en las respuestas, no décimas.
+
+### C.4 — Diagnóstico de la peor métrica y propuesta de mejora
+
+**La métrica: Answer Relevancy, 0,790 en el pipeline avanzado.** Es la más baja de las cuatro, y su peor caso es `informal-01` (0,59).
+
+**Cómo la calcula RAGAS.** El juez lee la **respuesta** y genera la pregunta que esa respuesta estaría contestando. Después compara, con embeddings, esa pregunta generada contra la pregunta original. La métrica no mide si la respuesta es correcta (eso es Faithfulness): mide si **apunta** a lo que se preguntó.
+
+**El caso.** El cliente pregunta *"che si me mandan la insu no se me corta lo del frio??"*. Es una pregunta de sí o no. La respuesta:
+
+> *"Para los productos que requieren conservación entre dos y ocho grados, como las insulinas, utilizamos conservadoras con gel refrigerante y registro de temperatura [DOC-006]. Los despachamos exclusivamente en la primera ronda de reparto de la mañana para minimizar el tiempo fuera de la heladera [DOC-006]. Si la temperatura registrada se sale del rango durante el trayecto, el producto se da de baja y se repone sin cargo [DOC-006]."*
+
+Es fiel (Faithfulness 1,00) y completa (Context Recall 1,00), pero **nunca contesta la pregunta**. No dice *"no, no se corta"*: describe el procedimiento de cadena de frío. La pregunta que el juez reconstruye a partir de ese texto es del estilo de *"¿cómo se envían los productos refrigerados?"*, que en el espacio de embeddings queda lejos de *"no se me corta lo del frio??"*.
+
+**Causa probable.** Son dos, y se suman:
+
+1. **El prompt de generación no exige responder el núcleo primero.** Las reglas de A.2 son todas defensivas (no inventar, no confirmar precios, escapar), y la regla 6 permite hasta cuatro oraciones. El modelo usa ese espacio para parafrasear el documento en orden, en vez de contestar sí o no y después justificar. Es un patrón de los dos pipelines, no del reranking: la respuesta del básico a `informal-01` es casi idéntica, con las mismas tres oraciones, y ya sacaba 0,70.
+2. **El registro informal amplifica la distancia.** Con la misma respuesta, una pregunta formal (*"¿la insulina mantiene la cadena de frío en el envío?"*) quedaría mucho más cerca de la pregunta reconstruida. Por eso el tipo *informal* es el peor en Answer Relevancy en los dos pipelines (0,78 y 0,72).
+
+La baja de 0,70 a 0,59 entre dos respuestas casi iguales es variabilidad del juez: con `strictness=1`, RAGAS genera una sola pregunta por respuesta, y una formulación distinta mueve la métrica varias décimas. Lo estable es el nivel bajo del caso, no el delta.
+
+**Acción técnica concreta.** Agregar al prompt de generación una regla de estructura, la que la Matriz de Diagnóstico de RAGAS asocia a esta métrica (*"clarificar el prompt de generación"*):
+
+```text
+7. Empezá respondiendo en una sola oración lo que el cliente preguntó (sí / no / el dato
+   pedido). Después agregá solo las condiciones que cambian esa respuesta. No describas
+   procedimientos que el cliente no preguntó.
+```
+
+Con esa regla, la respuesta a `informal-01` empezaría por *"No, la insulina viaja en conservadora con gel refrigerante y registro de temperatura [DOC-006]"*, y la pregunta que reconstruye el juez quedaría alineada con la original.
+
+**Cómo se valida.** El cambio es una línea de prompt y no toca el retriever, así que Context Precision y Context Recall no deberían moverse. Se vuelve a correr `--pipeline avanzado --reiniciar` y se compara con `--comparar`. El criterio de aceptación es que Answer Relevancy suba sin que Faithfulness baje del 0,946 actual: una respuesta más corta no puede ganar pertinencia a costa de afirmar cosas que el documento no dice. Si el registro informal sigue penalizando, el paso siguiente es una reescritura de la consulta (*query rewriting*) antes del retriever, que normalice *"la insu"* y *"lo del frio"* a lenguaje de catálogo.
