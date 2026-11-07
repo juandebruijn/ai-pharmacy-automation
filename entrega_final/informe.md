@@ -96,3 +96,72 @@ El segundo mensaje no dice ni el producto (*"esa de 600"*) ni que la primera con
 * **Sensor.** El precio y el *"no hay stock"* salen del ERP, no del modelo. El agente además ofrece la presentación de 400 mg, que sí hay en Norte, porque `consultar_stock` devuelve todas las presentaciones que coinciden.
 * **Reserva encadenada.** Es el caso que una cadena fija no puede resolver: el `producto_id` que necesita `reservar_producto` no lo dice el cliente, sale de la observación de `consultar_stock`. El precio total ($8.240 = 2 × $4.120) lo calcula el ERP. La reserva quedó realmente escrita: `stock_reservado` subió en 2.
 * **Fuera de dominio.** El agente **decide no usar ninguna herramienta** y responde la frase de escape. Comparado con la E3, donde el retriever siempre traía k documentos aunque no sirvieran, acá la consulta cuesta una sola llamada al LLM (1.872 tokens, menos de la mitad que las demás).
+
+---
+
+## Parte B — API REST
+
+### B.1 — Endpoints
+
+| Método y ruta | Qué hace | Respuesta |
+| :--- | :--- | :--- |
+| `GET /health` | Liveness + dependencias: colecciones de ChromaDB con su cantidad de registros, ERP y memoria. `status` es `degradado` si falta la base vectorial | `{"status", "modelo", "base_vectorial", "erp", "memoria"}` |
+| `POST /consultar` | Guardrails de entrada → agente → guardrail de salida. Sin `thread_id` genera uno; reenviándolo se sigue la conversación | `{"thread_id", "respuesta", "herramientas", "guardrail", "validador", "latencia_ms"}` |
+| `GET /estado/{thread_id}` | Historial de la conversación **leído del checkpointer** + reservas de ese hilo en el ERP. 404 si no existe | `{"thread_id", "total_mensajes", "mensajes", "reservas"}` |
+| `GET /metricas` | Métricas de la instancia (Parte C) | ver C.2 |
+
+Decisiones de diseño:
+
+* **El grafo se construye una sola vez**, en el `lifespan` de FastAPI, y queda en `app.state`. Construirlo por request sería recompilar el grafo y reabrir la conexión a SQLite en cada mensaje.
+* **Endpoints `def`, no `async def`.** El grafo, el `SqliteSaver` y el ERP son sincrónicos: FastAPI corre los endpoints `def` en un threadpool y no bloquea el event loop.
+* **`crear_app(grafo=None)`** es una fábrica: la API real construye el agente con Gemini y SQLite; los tests le pasan un grafo con un LLM falso y memoria en RAM.
+* **Un input bloqueado devuelve 200, no 4xx**, con `guardrail: "bloqueado_entrada"` y un mensaje para el cliente. En un canal de WhatsApp el cliente tiene que recibir una respuesta; el error es del contenido, no del request. Un 502 queda reservado para cuando el agente falla.
+* `thread_id` se valida con `^[A-Za-z0-9_-]{1,64}$`: entra a una base y a los logs.
+
+### B.2 — Memoria por HTTP, incluso después de reiniciar
+
+`python -m entrega_final.demo_api` levanta uvicorn como **proceso aparte**, conversa, **mata el proceso**, lo vuelve a levantar y sigue la misma conversación. La salida completa está en `resultados/demo_api.md`; lo esencial:
+
+```text
+> API levantada (pid 7088)
+POST /consultar {"pregunta": "Hola, ¿tienen Buscapina en la sucursal Oeste?", "thread_id": "demo-02d0fa"}
+  -> "¡Hola! Sí, tenemos Buscapina (10 mg x 20 grageas) en la sucursal Oeste. Hay 14 unidades
+      disponibles y el precio de lista es de $9760. ¿Te gustaría que te reserve alguna unidad [...]?"
+     herramientas: [consultar_stock]
+POST /consultar {"pregunta": "Genial, reservame 1 caja ahí.", "thread_id": "demo-02d0fa"}
+  -> "¡Perfecto! Te reservé 1 caja de Buscapina en la sucursal Oeste. Tu código de reserva es
+      RES-T6AM9T [...]"
+     herramientas: [reservar_producto]
+> API detenida (pid 7088): se pierde todo lo que estaba en RAM
+
+> API levantada (pid 14540)
+POST /consultar {"pregunta": "¿Me recordás qué te había reservado y hasta cuándo lo tengo que retirar?",
+                 "thread_id": "demo-02d0fa"}
+  -> "Tenés reservada 1 caja de Buscapina (10 mg x 20 grageas) en la sucursal Oeste. La reserva está
+      confirmada y tenés tiempo para retirarla hasta el 09/11/2026. El precio total es de $9760."
+     herramientas: [consultar_reserva]
+GET /estado/demo-02d0fa  -> 6 mensajes + reserva RES-T6AM9T (confirmada, vence 2026-11-09T13:07:36)
+```
+
+Dos cosas que muestra:
+
+* **La memoria resolvió dos referencias.** *"reservame 1 caja **ahí**"* (segundo turno) no dice ni el producto ni la sucursal: salen del primer turno. Y después del reinicio, el agente sabe que hay una reserva que consultar.
+* **El agente sigue consultando la fuente de verdad.** En el tercer turno podría haber contestado de memoria, pero llamó a `consultar_reserva`: el estado de una reserva puede cambiar (vencer, cancelarse) y el ERP es la autoridad. La memoria dice *de qué se habla*; el ERP dice *cómo está*.
+
+### B.3 — Levantar en otra máquina con solo el README
+
+`chroma_db/` y las bases SQLite están en `.gitignore`, así que un clon nuevo no tiene base. `python -m entrega_final.preparar` la reconstruye con los mismos scripts de las entregas anteriores: ingesta de la E2, ETL y purga de B.5, chunking de B.2 de la E3 e inicialización del ERP. Gasta solo embeddings (ninguna llamada al modelo de chat) y es idempotente.
+
+**Lo encontramos probándolo desde cero:** la capa gratuita de Gemini limita los embeddings a **100 requests por minuto** y cada texto es una request. La ingesta (23) + el ETL (~26) + los chunks (46) pasan ese límite y el tercer paso fallaba con `429 RESOURCE_EXHAUSTED ... embed_content_free_tier_requests, limit: 100`. Como los tres pasos son idempotentes, `preparar.py` espera 65 segundos a la ventana siguiente y repite el paso. La corrida completa queda así:
+
+```text
+1/4 Base vectorial de la Entrega 2...
+2/4 ETL y purga semántica...
+3/4 Chunking 500/100 de la Entrega 3...
+    cuota de embeddings por minuto agotada; reintento 1/3 en 65 s
+4/4 ERP simulado: 27 filas en productos (erp_farmacia.sqlite)
+    politicas_farmacia: 23 registros
+    politicas_farmacia_chunks: 46 registros
+```
+
+Los pasos completos (clonar, entorno virtual, `.env`, preparar, levantar, probar) están en el `README.md` de la raíz.
