@@ -20,3 +20,6 @@ ragas>=0.4.3
 langchain-community>=0.4,<0.4.2
 # El juez de RAGAS llama a Gemini por su endpoint compatible con OpenAI.
 openai>=1.109.1
+
+# Entrega Final - agente LangGraph, API REST y suite de seguridad
+langgraph>=1.2.14
