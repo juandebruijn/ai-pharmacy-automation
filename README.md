@@ -148,15 +148,16 @@ curl http://localhost:8000/metricas             # consultas, errores, latencia, 
 En **PowerShell**, `curl` es un alias de otro comando: usar `curl.exe` con las comillas escapadas, o directamente la página `/docs`. Para probar que la memoria sobrevive a un reinicio: cortar uvicorn con `Ctrl+C`, volver a levantarlo y consultar `/estado/cliente-01`. La demo automática lo hace sola:
 
 ```bash
-python -m entrega_final.demo_api       # memoria con reinicio y métricas -> resultados/demo_api.md
+python -m entrega_final.demo_api       # memoria con reinicio, guardrails y métricas -> resultados/demo_api.md
 ```
 
-### 4. Agente y costos
+### 4. Agente, seguridad y costos
 
 ```bash
 python -m entrega_final.agente --preguntar "¿hay ibupirac?" --thread demo   # una consulta por consola
 python -m entrega_final.agente --historial demo                            # memoria de un hilo
 python -m entrega_final.agente --matriz                                    # A.4: matriz de 4 escenarios
+python -m pytest entrega_final/security_tests.py -v                         # D: suite de seguridad (sin red)
 python -m entrega_final.costos_langsmith                                   # C: costos desde LangSmith
 ```
 
