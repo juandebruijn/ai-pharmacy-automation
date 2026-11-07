@@ -10,3 +10,4 @@ chroma_db/
 
 # Entrega Final - estado de ejecucion: se recrea con python -m entrega_final.preparar
 entrega_final/data/*.sqlite*
+entrega_final/logs/
