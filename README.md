@@ -51,6 +51,24 @@ Un sistema con IA que automatiza las consultas de los clientes por WhatsApp, ver
 | `entrega_3/langsmith_trace.png` | Captura de la traza de B.4 |
 | `entrega_3/informe.md` | Partes A, B y C completas |
 
+### Entrega Final — Agente LangGraph como API REST (`entrega_final/`)
+
+| Archivo | Contenido |
+| :--- | :--- |
+| `entrega_final/herramientas.py` | A.1: retriever (RAG de la E3), sensor de stock, actuador de reservas y consulta de reservas |
+| `entrega_final/erp.py` + `data/catalogo.json` | ERP simulado en SQLite (tabla `productos` de la E1 + `reservas`) |
+| `entrega_final/agente.py` | A.2 – A.4: grafo ReAct con límite de iteraciones, memoria SQLite y matriz de validación |
+| `entrega_final/api.py` | B: FastAPI con `/health`, `/consultar`, `/estado/{thread_id}` y `/metricas` |
+| `entrega_final/preparar.py` | Reconstruye la base vectorial y el ERP en una máquina nueva |
+| `entrega_final/demo_api.py` | Demo de memoria por HTTP con reinicio de la API |
+| `entrega_final/observabilidad.py` | C: logs JSON y métricas |
+| `entrega_final/costos_langsmith.py` | C: análisis de costos desde las trazas de LangSmith |
+| `entrega_final/guardrails.py` | D: validadores de entrada (longitud, prompt injection) y de salida (datos personales) |
+| `entrega_final/security_tests.py` | D: suite automática de seguridad (33 tests) |
+| `entrega_final/resultados/` | Salidas reales: matriz, demo de la API y costos |
+| `entrega_final/informe.md` | Partes A a D completas |
+| `entrega_final/ficha_tecnica.md` | Parte E: ficha técnica del sistema |
+
 ### Comunes
 
 | Archivo | Contenido |
@@ -58,7 +76,7 @@ Un sistema con IA que automatiza las consultas de los clientes por WhatsApp, ver
 | `.env.example` | Variables de entorno, sin valores reales |
 | `requirements.txt` | Dependencias con versión |
 
-> **Lo que NO se commitea:** `.env`, `venv/`, el índice binario de FAISS (`indice_faiss/`) y la base de ChromaDB (`chroma_db/`). Los dos últimos se reconstruyen desde `base_conocimiento.json` con los scripts del repo.
+> **Lo que NO se commitea:** `.env`, `venv/`, el índice binario de FAISS (`indice_faiss/`), la base de ChromaDB (`chroma_db/`), las bases SQLite de la Entrega Final (memoria y ERP) y sus logs. Todo se reconstruye con los scripts del repo: para la Entrega Final alcanza con `python -m entrega_final.preparar`.
 
 ---
 
