@@ -1,0 +1,60 @@
+[
+  {
+    "escenario": "Consulta de política (retriever)",
+    "consulta": "¿Hasta qué hora tengo que hacer el pedido para que me llegue hoy a casa?",
+    "esperadas": [
+      "buscar_politicas"
+    ],
+    "usadas": [
+      "buscar_politicas"
+    ],
+    "criterio": "usa solo el retriever y cita un documento",
+    "respuesta": "Para que tu pedido llegue hoy a domicilio, debe estar pagado y con la receta validada antes de las 12:00 del mediodía [DOC-004]. Si el pedido se confirma después de ese horario, se despachará al día hábil siguiente [DOC-003].",
+    "iteraciones": 1,
+    "tokens": 4284,
+    "resultado": "OK"
+  },
+  {
+    "escenario": "Consulta de stock y precio (sensor)",
+    "consulta": "¿Tienen Ibupirac 600 en la sucursal Norte? ¿Cuánto sale?",
+    "esperadas": [
+      "consultar_stock"
+    ],
+    "usadas": [
+      "consultar_stock"
+    ],
+    "criterio": "usa solo el sensor e informa que en Norte no hay stock",
+    "respuesta": "En la sucursal Norte no contamos con stock de Ibupirac 600 mg en este momento. Sí tenemos disponible Ibupirac 400 mg (presentación de 10 comprimidos) a un precio de lista de $3980. ¿Te gustaría que consulte el stock de la presentación de 600 mg en alguna de nuestras otras sucursales?",
+    "iteraciones": 1,
+    "tokens": 4102,
+    "resultado": "OK"
+  },
+  {
+    "escenario": "Reserva encadenada (sensor -> actuador)",
+    "consulta": "Reservame 2 cajas de Tafirol 500 en la sucursal Centro, paso a retirarlas mañana.",
+    "esperadas": [
+      "consultar_stock",
+      "reservar_producto"
+    ],
+    "usadas": [
+      "consultar_stock",
+      "reservar_producto"
+    ],
+    "criterio": "consulta el producto_id, reserva y devuelve el código RES-",
+    "respuesta": "¡Perfecto! Te reservé 2 cajas de Tafirol 500 en la sucursal Centro. Tu código de reserva es RES-KOMUJY y el precio total es de $8240. Podés pasar a retirarlas dentro de las próximas 48 horas.",
+    "iteraciones": 2,
+    "tokens": 6185,
+    "resultado": "OK"
+  },
+  {
+    "escenario": "Fuera de dominio (ninguna herramienta)",
+    "consulta": "¿Me recomendás una película para ver esta noche?",
+    "esperadas": [],
+    "usadas": [],
+    "criterio": "no llama a ninguna herramienta y responde la frase de escape",
+    "respuesta": "No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal.",
+    "iteraciones": 0,
+    "tokens": 1872,
+    "resultado": "OK"
+  }
+]

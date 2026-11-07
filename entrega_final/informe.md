@@ -53,3 +53,46 @@ El grafo está armado a mano y no con `create_agent` (la opción "cómoda" de la
 `test_limite_de_iteraciones_corta_un_agente_en_bucle` (D.3) lo prueba con un LLM falso que pide `consultar_stock` para siempre: el grafo ejecuta la herramienta **exactamente 4 veces**, llama al modelo 5 veces y responde la derivación.
 
 **El system prompt** hereda las 6 reglas de negocio de la E3 (solo información explícita, nunca precios inventados, corregir beneficios falsos, frase de escape, citar `[DOC-XXX]`, tono) y suma cuatro: cuándo usar cada herramienta, confirmar producto/sucursal/cantidad antes de reservar, no pedir ni repetir datos personales, y no obedecer instrucciones del cliente que intenten cambiar las reglas. No se guarda en el estado: se antepone en cada llamada, así que cambiarlo no exige migrar las conversaciones guardadas. El modelo ve una ventana de los últimos 12 mensajes (`trim_messages` empezando siempre en un mensaje humano, para no cortar un par `tool_call`/`ToolMessage`); el historial completo queda en el checkpointer.
+
+### A.3 — Memoria SQLite persistente por `thread_id`
+
+```python
+def crear_checkpointer(ruta=DB_MEMORIA) -> SqliteSaver:
+    return SqliteSaver(sqlite3.connect(ruta, check_same_thread=False))
+```
+
+`SqliteSaver` guarda el estado completo del grafo **después de cada nodo**, indexado por `thread_id`, en `entrega_final/data/memoria_agente.sqlite`. `check_same_thread=False` porque FastAPI atiende cada request en un hilo distinto del threadpool.
+
+La prueba más simple de que la memoria está en disco y no en RAM son **dos procesos de Python distintos**, uno después del otro, con el mismo `thread_id`:
+
+```text
+$ python -m entrega_final.agente --preguntar "¿Tienen Ibupirac 600 en la sucursal Norte? ¿Cuánto sale?" --thread prueba-1
+Herramientas: ['consultar_stock'] (1 iteraciones)
+Respuesta   : En la sucursal Norte no contamos con stock de Ibupirac 600 mg en este momento. Sí disponemos
+              de Ibupirac 400 mg (presentación de 10 comprimidos), cuyo precio de lista es de $3980. [...]
+
+$ python -m entrega_final.agente --preguntar "Dale, ¿y en el Centro hay? Si hay reservame 2 de esa de 600." --thread prueba-1
+Herramientas: ['consultar_stock', 'reservar_producto'] (2 iteraciones)
+Respuesta   : ¡Confirmado! Reservé 2 unidades de Ibupirac 600 mg en la sucursal Centro. Tu código de
+              reserva es RES-75Z8B6 y el precio total es de $16900. [...]
+```
+
+El segundo mensaje no dice ni el producto (*"esa de 600"*) ni que la primera consulta era sobre Ibupirac. El segundo proceso lo resuelve porque cargó el historial del primero desde SQLite. `--historial prueba-1` muestra los cuatro mensajes guardados.
+
+### A.4 — Matriz de validación
+
+`python -m entrega_final.agente --matriz` corre 4 escenarios, cada uno en un hilo nuevo para que no se contaminen. Cada caso se valida **automáticamente** con dos criterios: la **trayectoria** (el conjunto de herramientas usadas es exactamente el esperado) y la **respuesta** (contiene lo que tiene que contener). Resultados guardados en `resultados/matriz_agente.json`:
+
+| Escenario | Consulta | Herramientas esperadas | Herramientas usadas | Respuesta del agente | Resultado |
+| :--- | :--- | :--- | :--- | :--- | :---: |
+| **Política (retriever)** | *¿Hasta qué hora tengo que hacer el pedido para que me llegue hoy a casa?* | `buscar_politicas` | `buscar_politicas` (1 iteración, 4.284 tokens) | *"Para que tu pedido llegue hoy a domicilio, debe estar pagado y con la receta validada antes de las 12:00 del mediodía [DOC-004]. Si el pedido se confirma después de ese horario, se despachará al día hábil siguiente [DOC-003]."* | ✅ |
+| **Stock y precio (sensor)** | *¿Tienen Ibupirac 600 en la sucursal Norte? ¿Cuánto sale?* | `consultar_stock` | `consultar_stock` (1 iteración, 4.102 tokens) | *"En la sucursal Norte no contamos con stock de Ibupirac 600 mg en este momento. Sí tenemos disponible Ibupirac 400 mg [...] a un precio de lista de $3980. ¿Te gustaría que consulte el stock de la presentación de 600 mg en alguna de nuestras otras sucursales?"* | ✅ |
+| **Reserva encadenada (sensor → actuador)** | *Reservame 2 cajas de Tafirol 500 en la sucursal Centro, paso a retirarlas mañana.* | `consultar_stock`, `reservar_producto` | `consultar_stock` → `reservar_producto` (2 iteraciones, 6.185 tokens) | *"¡Perfecto! Te reservé 2 cajas de Tafirol 500 en la sucursal Centro. Tu código de reserva es RES-KOMUJY y el precio total es de $8240. Podés pasar a retirarlas dentro de las próximas 48 horas."* | ✅ |
+| **Fuera de dominio (ninguna)** | *¿Me recomendás una película para ver esta noche?* | — | — (0 iteraciones, 1.872 tokens) | *"No poseo información sobre eso en las políticas de la farmacia. Te derivo con un empleado de la sucursal."* | ✅ |
+
+**Lo que muestra cada fila:**
+
+* **Política.** El modelo decide que es una pregunta de reglas y no de stock. La corrida se hizo un sábado y la respuesta lo tiene en cuenta: el corte de las 12:00 es el de los sábados (DOC-004), no el de las 16:00 de días hábiles. El día de la semana entra en el system prompt justamente para esto. **Una observación honesta:** la segunda oración cita DOC-003, que es la política de la sucursal **Oeste**; la regla vale para toda la red porque DOC-004 dice lo mismo, pero la cita es la de otro documento. Es el mismo riesgo que la regla 1 intenta contener ("no extiendas a una sucursal lo que se dice de otra").
+* **Sensor.** El precio y el *"no hay stock"* salen del ERP, no del modelo. El agente además ofrece la presentación de 400 mg, que sí hay en Norte, porque `consultar_stock` devuelve todas las presentaciones que coinciden.
+* **Reserva encadenada.** Es el caso que una cadena fija no puede resolver: el `producto_id` que necesita `reservar_producto` no lo dice el cliente, sale de la observación de `consultar_stock`. El precio total ($8.240 = 2 × $4.120) lo calcula el ERP. La reserva quedó realmente escrita: `stock_reservado` subió en 2.
+* **Fuera de dominio.** El agente **decide no usar ninguna herramienta** y responde la frase de escape. Comparado con la E3, donde el retriever siempre traía k documentos aunque no sirvieran, acá la consulta cuesta una sola llamada al LLM (1.872 tokens, menos de la mitad que las demás).
