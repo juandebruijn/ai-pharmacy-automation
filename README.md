@@ -102,6 +102,7 @@ Editar el `.env` recién creado y completar:
 | `LANGSMITH_PROJECT` | Solo para B.4 | Proyecto de LangSmith donde se agrupan las trazas. |
 | `GEMINI_MODEL_AGENTE` | No | Modelo del agente de la Entrega Final. Default `gemini-3.1-flash-lite`. |
 | `MAX_ITERACIONES` | No | Vueltas agente → herramientas por consulta. Default `4`. |
+| `PRECIO_ENTRADA_USD_MTOK` / `PRECIO_SALIDA_USD_MTOK` | No | Tarifa para el costo estimado de `/metricas`. Default `0.25` / `1.50`. |
 
 > ⚠️ El archivo `.env` está en `.gitignore` y nunca se commitea. Solo se versiona `.env.example`, sin valores.
 
@@ -141,21 +142,25 @@ curl -X POST http://localhost:8000/consultar -H "Content-Type: application/json"
      -d '{"pregunta": "Reservame 1 caja ahí", "thread_id": "cliente-01"}'
 
 curl http://localhost:8000/estado/cliente-01    # historial (desde SQLite) + reservas
+curl http://localhost:8000/metricas             # consultas, errores, latencia, herramientas, bloqueos
 ```
 
 En **PowerShell**, `curl` es un alias de otro comando: usar `curl.exe` con las comillas escapadas, o directamente la página `/docs`. Para probar que la memoria sobrevive a un reinicio: cortar uvicorn con `Ctrl+C`, volver a levantarlo y consultar `/estado/cliente-01`. La demo automática lo hace sola:
 
 ```bash
-python -m entrega_final.demo_api       # memoria con reinicio -> resultados/demo_api.md
+python -m entrega_final.demo_api       # memoria con reinicio y métricas -> resultados/demo_api.md
 ```
 
-### 4. Agente
+### 4. Agente y costos
 
 ```bash
 python -m entrega_final.agente --preguntar "¿hay ibupirac?" --thread demo   # una consulta por consola
 python -m entrega_final.agente --historial demo                            # memoria de un hilo
 python -m entrega_final.agente --matriz                                    # A.4: matriz de 4 escenarios
+python -m entrega_final.costos_langsmith                                   # C: costos desde LangSmith
 ```
+
+Los logs JSON quedan en `entrega_final/logs/api.jsonl`.
 
 ---
 
