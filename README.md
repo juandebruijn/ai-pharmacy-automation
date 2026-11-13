@@ -100,8 +100,62 @@ Editar el `.env` recién creado y completar:
 | `LANGSMITH_API_KEY` | Solo para B.4 | Clave de LangSmith ([smith.langchain.com](https://smith.langchain.com) → Settings → API Keys). |
 | `LANGSMITH_TRACING` | Solo para B.4 | `true` para que cada corrida del pipeline se registre como traza. |
 | `LANGSMITH_PROJECT` | Solo para B.4 | Proyecto de LangSmith donde se agrupan las trazas. |
+| `GEMINI_MODEL_AGENTE` | No | Modelo del agente de la Entrega Final. Default `gemini-3.1-flash-lite`. |
+| `MAX_ITERACIONES` | No | Vueltas agente → herramientas por consulta. Default `4`. |
 
 > ⚠️ El archivo `.env` está en `.gitignore` y nunca se commitea. Solo se versiona `.env.example`, sin valores.
+
+---
+
+## ▶️ Cómo correr la Entrega Final
+
+Con el entorno creado, las dependencias instaladas y el `.env` completo (pasos 1 a 3 de arriba). Todos los comandos van **desde la raíz del repo**.
+
+### 1. Preparar los datos (una sola vez)
+
+```bash
+python -m entrega_final.preparar
+```
+
+Reconstruye la base vectorial (ingesta de la E2, ETL y chunks 500/100 de la E3) y crea el ERP simulado en SQLite. Solo usa embeddings; tarda 1 a 2 minutos porque la capa gratuita permite 100 embeddings por minuto (el script espera y reintenta solo).
+
+### 2. Levantar la API
+
+```bash
+uvicorn entrega_final.api:app --port 8000
+```
+
+Documentación interactiva en [http://localhost:8000/docs](http://localhost:8000/docs).
+
+### 3. Probarla
+
+```bash
+curl http://localhost:8000/health
+
+# Primer mensaje: sin thread_id, la API genera uno y lo devuelve
+curl -X POST http://localhost:8000/consultar -H "Content-Type: application/json" \
+     -d '{"pregunta": "¿Tienen Buscapina en la sucursal Oeste?", "thread_id": "cliente-01"}'
+
+# Mismo thread_id: el agente recuerda la conversación
+curl -X POST http://localhost:8000/consultar -H "Content-Type: application/json" \
+     -d '{"pregunta": "Reservame 1 caja ahí", "thread_id": "cliente-01"}'
+
+curl http://localhost:8000/estado/cliente-01    # historial (desde SQLite) + reservas
+```
+
+En **PowerShell**, `curl` es un alias de otro comando: usar `curl.exe` con las comillas escapadas, o directamente la página `/docs`. Para probar que la memoria sobrevive a un reinicio: cortar uvicorn con `Ctrl+C`, volver a levantarlo y consultar `/estado/cliente-01`. La demo automática lo hace sola:
+
+```bash
+python -m entrega_final.demo_api       # memoria con reinicio -> resultados/demo_api.md
+```
+
+### 4. Agente
+
+```bash
+python -m entrega_final.agente --preguntar "¿hay ibupirac?" --thread demo   # una consulta por consola
+python -m entrega_final.agente --historial demo                            # memoria de un hilo
+python -m entrega_final.agente --matriz                                    # A.4: matriz de 4 escenarios
+```
 
 ---
 
