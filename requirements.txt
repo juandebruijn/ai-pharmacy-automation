@@ -23,3 +23,4 @@ openai>=1.109.1
 
 # Entrega Final - agente LangGraph, API REST y suite de seguridad
 langgraph>=1.2.14
+langgraph-checkpoint-sqlite>=3.1.3

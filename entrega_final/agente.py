@@ -1,4 +1,4 @@
-"""A.1 – A.2 — Agente ReAct con LangGraph y límite de iteraciones.
+"""A.2 – A.4 — Agente ReAct con LangGraph, límite de iteraciones y memoria SQLite.
 
 El RAG de la Entrega 3 era una CADENA fija: recuperar -> prompt -> LLM. Acá el
 LLM decide en cada vuelta si necesita una herramienta, cuál y con qué
@@ -11,11 +11,15 @@ argumentos; el grafo solo define qué transiciones están permitidas:
                +--------------- herramientas (ToolNode)
 
 Uso (desde la raíz del repo):
-    python -m entrega_final.agente --preguntar "¿tienen ibupirac?"   # A.2
+    python -m entrega_final.agente --preguntar "¿tienen ibupirac?" --thread demo   # A.2
+    python -m entrega_final.agente --historial demo                               # A.3
+    python -m entrega_final.agente --matriz                                       # A.4
 """
 
 import argparse
+import json
 import os
+import sqlite3
 import uuid
 from datetime import date
 from typing import Any
@@ -24,13 +28,14 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, trim_messages
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langgraph.checkpoint.base import BaseCheckpointSaver
+from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.errors import GraphRecursionError
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from entrega_final import erp
 from entrega_final.config import (
-    FRASE_ESCAPE, FRASE_LIMITE, MAX_ITERACIONES, MODELO_AGENTE,
+    DB_MEMORIA, DIR_FINAL, FRASE_ESCAPE, FRASE_LIMITE, MAX_ITERACIONES, MODELO_AGENTE,
     RECURSION_LIMIT, VENTANA_MENSAJES,
 )
 from entrega_final.herramientas import HERRAMIENTAS, NOMBRES_SUCURSALES
@@ -148,6 +153,19 @@ def construir_agente(llm: BaseChatModel | None = None,
     return grafo.compile(checkpointer=checkpointer, name="agente_farmacia")
 
 
+# --------------------------------------------------------------------------- #
+# A.3 — Memoria persistente por thread_id
+# --------------------------------------------------------------------------- #
+def crear_checkpointer(ruta=DB_MEMORIA) -> SqliteSaver:
+    """
+    SqliteSaver guarda el estado completo del grafo después de cada nodo, indexado
+    por thread_id. Está en disco: sobrevive a que se reinicie el proceso o la API.
+    check_same_thread=False porque FastAPI atiende cada request en otro hilo.
+    """
+    ruta.parent.mkdir(parents=True, exist_ok=True)
+    return SqliteSaver(sqlite3.connect(ruta, check_same_thread=False))
+
+
 def texto(mensaje: BaseMessage) -> str:
     """Gemini puede devolver el contenido como lista de partes."""
     contenido = mensaje.content
@@ -198,22 +216,110 @@ def consultar(grafo, pregunta: str, thread_id: str, metadata: dict | None = None
     }
 
 
+def historial(grafo, thread_id: str) -> list[dict]:
+    """Lo que el checkpointer tiene guardado para un hilo, sin los pasos internos de tools."""
+    estado = grafo.get_state({"configurable": {"thread_id": thread_id}})
+    salida = []
+    for m in estado.values.get("messages", []):
+        if isinstance(m, HumanMessage):
+            salida.append({"rol": "cliente", "contenido": texto(m)})
+        elif isinstance(m, AIMessage) and not m.tool_calls and texto(m):
+            salida.append({"rol": "asistente", "contenido": texto(m)})
+    return salida
+
+
+# --------------------------------------------------------------------------- #
+# A.4 — Matriz de validación (4 escenarios)
+# --------------------------------------------------------------------------- #
+MATRIZ = [
+    {
+        "escenario": "Consulta de política (retriever)",
+        "consulta": "¿Hasta qué hora tengo que hacer el pedido para que me llegue hoy a casa?",
+        "esperadas": ["buscar_politicas"],
+        "criterio": "usa solo el retriever y cita un documento",
+        "verificar": lambda r: "[DOC-" in r,
+    },
+    {
+        "escenario": "Consulta de stock y precio (sensor)",
+        "consulta": "¿Tienen Ibupirac 600 en la sucursal Norte? ¿Cuánto sale?",
+        "esperadas": ["consultar_stock"],
+        "criterio": "usa solo el sensor e informa que en Norte no hay stock",
+        "verificar": lambda r: "norte" in r.lower(),
+    },
+    {
+        "escenario": "Reserva encadenada (sensor -> actuador)",
+        "consulta": "Reservame 2 cajas de Tafirol 500 en la sucursal Centro, paso a retirarlas mañana.",
+        "esperadas": ["consultar_stock", "reservar_producto"],
+        "criterio": "consulta el producto_id, reserva y devuelve el código RES-",
+        "verificar": lambda r: "RES-" in r,
+    },
+    {
+        "escenario": "Fuera de dominio (ninguna herramienta)",
+        "consulta": "¿Me recomendás una película para ver esta noche?",
+        "esperadas": [],
+        "criterio": "no llama a ninguna herramienta y responde la frase de escape",
+        "verificar": lambda r: FRASE_ESCAPE in r,
+    },
+]
+
+
+def matriz_validacion(grafo) -> list[dict]:
+    filas = []
+    for caso in MATRIZ:
+        thread_id = f"matriz-{uuid.uuid4().hex[:8]}"  # hilo nuevo: sin contaminación entre casos
+        salida = consultar(grafo, caso["consulta"], thread_id, {"origen": "matriz"})
+        trayectoria_ok = sorted(set(salida["herramientas"])) == sorted(caso["esperadas"])
+        respuesta_ok = caso["verificar"](salida["respuesta"])
+        filas.append({
+            "escenario": caso["escenario"],
+            "consulta": caso["consulta"],
+            "esperadas": caso["esperadas"],
+            "usadas": salida["herramientas"],
+            "criterio": caso["criterio"],
+            "respuesta": salida["respuesta"],
+            "iteraciones": salida["iteraciones"],
+            "tokens": salida["tokens"]["total"],
+            "resultado": "OK" if trayectoria_ok and respuesta_ok else "FALLA",
+        })
+        print("=" * 78)
+        print(f"{caso['escenario']}  ->  {filas[-1]['resultado']}")
+        print(f"Consulta     : {caso['consulta']}")
+        print(f"Esperadas    : {caso['esperadas']}")
+        print(f"Usadas       : {salida['herramientas']} ({salida['iteraciones']} iteraciones, "
+              f"{salida['tokens']['total']} tokens)")
+        print(f"Respuesta    : {salida['respuesta']}\n")
+
+    destino = DIR_FINAL / "resultados" / "matriz_agente.json"
+    destino.parent.mkdir(exist_ok=True)
+    destino.write_text(json.dumps(filas, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Resultados guardados en {destino.relative_to(DIR_FINAL.parent)}")
+    return filas
+
+
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Agente ReAct de la farmacia (Entrega Final, A.1 – A.2).")
+    parser = argparse.ArgumentParser(description="Agente ReAct de la farmacia (Entrega Final, Parte A).")
     parser.add_argument("--preguntar", metavar="CONSULTA", help="A.2: una consulta al agente.")
+    parser.add_argument("--thread", default=None, help="A.3: thread_id de la conversación (default: uno nuevo).")
+    parser.add_argument("--historial", metavar="THREAD_ID", help="A.3: lo que la memoria tiene de un hilo.")
+    parser.add_argument("--matriz", action="store_true", help="A.4: matriz de validación de 4 escenarios.")
     args = parser.parse_args()
 
     erp.inicializar()
-    grafo = construir_agente()
+    grafo = construir_agente(checkpointer=crear_checkpointer())
 
     if args.preguntar:
-        thread_id = uuid.uuid4().hex[:16]
+        thread_id = args.thread or uuid.uuid4().hex[:16]
         salida = consultar(grafo, args.preguntar, thread_id)
         print(f"thread_id   : {thread_id}")
         print(f"Herramientas: {salida['herramientas']} ({salida['iteraciones']} iteraciones)")
         print(f"Tokens      : {salida['tokens']}")
         print(f"Respuesta   : {salida['respuesta']}")
-    if not args.preguntar:
+    if args.historial:
+        for m in historial(grafo, args.historial):
+            print(f"[{m['rol']}] {m['contenido']}")
+    if args.matriz:
+        matriz_validacion(grafo)
+    if not (args.preguntar or args.historial or args.matriz):
         parser.print_help()
     return 0
 
