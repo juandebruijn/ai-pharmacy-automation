@@ -51,6 +51,24 @@ Un sistema con IA que automatiza las consultas de los clientes por WhatsApp, ver
 | `entrega_3/langsmith_trace.png` | Captura de la traza de B.4 |
 | `entrega_3/informe.md` | Partes A, B y C completas |
 
+### Entrega Final — Agente LangGraph como API REST (`entrega_final/`)
+
+| Archivo | Contenido |
+| :--- | :--- |
+| `entrega_final/herramientas.py` | A.1: retriever (RAG de la E3), sensor de stock, actuador de reservas y consulta de reservas |
+| `entrega_final/erp.py` + `data/catalogo.json` | ERP simulado en SQLite (tabla `productos` de la E1 + `reservas`) |
+| `entrega_final/agente.py` | A.2 – A.4: grafo ReAct con límite de iteraciones, memoria SQLite y matriz de validación |
+| `entrega_final/api.py` | B: FastAPI con `/health`, `/consultar`, `/estado/{thread_id}` y `/metricas` |
+| `entrega_final/preparar.py` | Reconstruye la base vectorial y el ERP en una máquina nueva |
+| `entrega_final/demo_api.py` | Demo de memoria por HTTP con reinicio de la API |
+| `entrega_final/observabilidad.py` | C: logs JSON y métricas |
+| `entrega_final/costos_langsmith.py` | C: análisis de costos desde las trazas de LangSmith |
+| `entrega_final/guardrails.py` | D: validadores de entrada (longitud, prompt injection) y de salida (datos personales) |
+| `entrega_final/security_tests.py` | D: suite automática de seguridad (33 tests) |
+| `entrega_final/resultados/` | Salidas reales: matriz, demo de la API y costos |
+| `entrega_final/informe.md` | Partes A a D completas |
+| `entrega_final/ficha_tecnica.md` | Parte E: ficha técnica del sistema |
+
 ### Comunes
 
 | Archivo | Contenido |
@@ -58,7 +76,7 @@ Un sistema con IA que automatiza las consultas de los clientes por WhatsApp, ver
 | `.env.example` | Variables de entorno, sin valores reales |
 | `requirements.txt` | Dependencias con versión |
 
-> **Lo que NO se commitea:** `.env`, `venv/`, el índice binario de FAISS (`indice_faiss/`) y la base de ChromaDB (`chroma_db/`). Los dos últimos se reconstruyen desde `base_conocimiento.json` con los scripts del repo.
+> **Lo que NO se commitea:** `.env`, `venv/`, el índice binario de FAISS (`indice_faiss/`), la base de ChromaDB (`chroma_db/`), las bases SQLite de la Entrega Final (memoria y ERP) y sus logs. Todo se reconstruye con los scripts del repo: para la Entrega Final alcanza con `python -m entrega_final.preparar`.
 
 ---
 
@@ -102,6 +120,7 @@ Editar el `.env` recién creado y completar:
 | `LANGSMITH_PROJECT` | Solo para B.4 | Proyecto de LangSmith donde se agrupan las trazas. |
 | `GEMINI_MODEL_AGENTE` | No | Modelo del agente de la Entrega Final. Default `gemini-3.1-flash-lite`. |
 | `MAX_ITERACIONES` | No | Vueltas agente → herramientas por consulta. Default `4`. |
+| `PRECIO_ENTRADA_USD_MTOK` / `PRECIO_SALIDA_USD_MTOK` | No | Tarifa para el costo estimado de `/metricas`. Default `0.25` / `1.50`. |
 
 > ⚠️ El archivo `.env` está en `.gitignore` y nunca se commitea. Solo se versiona `.env.example`, sin valores.
 
@@ -141,21 +160,26 @@ curl -X POST http://localhost:8000/consultar -H "Content-Type: application/json"
      -d '{"pregunta": "Reservame 1 caja ahí", "thread_id": "cliente-01"}'
 
 curl http://localhost:8000/estado/cliente-01    # historial (desde SQLite) + reservas
+curl http://localhost:8000/metricas             # consultas, errores, latencia, herramientas, bloqueos
 ```
 
 En **PowerShell**, `curl` es un alias de otro comando: usar `curl.exe` con las comillas escapadas, o directamente la página `/docs`. Para probar que la memoria sobrevive a un reinicio: cortar uvicorn con `Ctrl+C`, volver a levantarlo y consultar `/estado/cliente-01`. La demo automática lo hace sola:
 
 ```bash
-python -m entrega_final.demo_api       # memoria con reinicio -> resultados/demo_api.md
+python -m entrega_final.demo_api       # memoria con reinicio, guardrails y métricas -> resultados/demo_api.md
 ```
 
-### 4. Agente
+### 4. Agente, seguridad y costos
 
 ```bash
 python -m entrega_final.agente --preguntar "¿hay ibupirac?" --thread demo   # una consulta por consola
 python -m entrega_final.agente --historial demo                            # memoria de un hilo
 python -m entrega_final.agente --matriz                                    # A.4: matriz de 4 escenarios
+python -m pytest entrega_final/security_tests.py -v                         # D: suite de seguridad (sin red)
+python -m entrega_final.costos_langsmith                                   # C: costos desde LangSmith
 ```
+
+Los logs JSON quedan en `entrega_final/logs/api.jsonl`.
 
 ---
 

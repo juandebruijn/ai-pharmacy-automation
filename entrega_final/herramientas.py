@@ -124,7 +124,20 @@ def consultar_stock(producto: str, sucursal_id: Sucursal | None = None) -> str:
     if not resultados:
         return _json({"error": f"No hay ningún producto que coincida con '{producto}' en el "
                                "catálogo. Pedile al cliente el nombre comercial o la droga."})
-    return _json({"resultados": resultados})
+    salida: dict = {"resultados": resultados}
+    # Avisos explícitos: en la carga de prueba el modelo leyó psicotropico=true y
+    # aun así ofreció reservar, y ante stock 0 negó el encargo sin consultar las
+    # políticas. Un aviso en la observación pesa más que un booleano suelto.
+    avisos = []
+    if any(r["psicotropico"] for r in resultados):
+        avisos.append("Psicotrópico: NO se reserva ni se vende por WhatsApp; la dispensa es solo "
+                      "presencial con receta oficial. Consultá buscar_politicas para citar la norma.")
+    if all(r["unidades_disponibles"] == 0 for r in resultados):
+        avisos.append("Sin stock: antes de responder, consultá buscar_politicas sobre qué alternativas "
+                      "hay cuando un producto no tiene stock.")
+    if avisos:
+        salida["avisos"] = avisos
+    return _json(salida)
 
 
 # --------------------------------------------------------------------------- #
